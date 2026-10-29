@@ -19,6 +19,14 @@ Para desarrollo, instala Node.js 22 o posterior y el SDK de .NET 9; después eje
 
 ## Versión web
 
-La versión web usa el mismo código de interfaz y API con Cloudflare Workers y D1. `npm run compilar:web` prepara el Worker. La configuración está en `wrangler.jsonc` y la creación de tablas en `migraciones/0001_inicial.sql`. El identificador de base de datos de la configuración es provisional: antes de publicar hay que crear `repartidores_demo` en la cuenta elegida y sustituirlo por el identificador real. Después se aplican las migraciones remotas y se guarda `CLAVE_PREPARACION` como secreto de Worker para proteger la primera cuenta de administrador. Nunca incluyas ese código ni las contraseñas en GitHub.
+Demo publicada: https://repartidores-demo.angelguerrero9478.workers.dev
+
+La primera vez, abre ese enlace y crea el administrador con tu correo, una contraseña de al menos 10 caracteres y el código de preparación entregado por separado. Ese código solo se necesita para crear el primer administrador. Después podrás dar de alta comercios y repartidores desde la página.
+
+Todas las personas que entren en la web comparten los registros de D1. La versión del ejecutable mantiene su propia base SQLite en cada computadora; sus datos no se sincronizan con la web. No se han importado registros de Firebase.
+
+La versión web usa el mismo código de interfaz y API con Cloudflare Workers y D1. La configuración está en `wrangler.jsonc` y la creación de tablas en `migraciones/0001_inicial.sql`. Para actualizar esta publicación, inicia sesión con `npx wrangler login --scopes account:read user:read workers_scripts:write d1:write`, ejecuta `npm run compilar:web` y después `npx wrangler deploy`. Las migraciones adicionales se aplican con `npx wrangler d1 migrations apply DB --remote`.
+
+El código de primera preparación está guardado como secreto `CLAVE_PREPARACION` del Worker. Nunca incluyas ese código ni las contraseñas en GitHub. Si despliegas una copia en otra cuenta, crea allí una base D1, cambia `account_id` y `database_id` en la configuración y establece su propio secreto con `npx wrangler secret put CLAVE_PREPARACION`.
 
 Para probar la versión web sin publicarla: `npx wrangler d1 migrations apply DB --local`, luego `npm run compilar:web` y `npx wrangler dev --var CLAVE_PREPARACION:un-codigo-de-prueba`. Esa prueba tiene una base separada de la versión local y de la publicada.
