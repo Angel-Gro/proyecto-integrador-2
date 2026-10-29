@@ -6,12 +6,13 @@ import SQLite from 'better-sqlite3';
 import { atenderApi } from './servicio-datos.mjs';
 
 const raiz = path.dirname(fileURLToPath(import.meta.url));
-const carpetaDatos = process.env.REPARTIDORES_DATOS || path.join(raiz, 'datos');
+const proyecto = path.resolve(raiz, '..');
+const carpetaDatos = process.env.REPARTIDORES_DATOS || path.join(proyecto, 'datos');
 fs.mkdirSync(carpetaDatos, { recursive: true });
 const sqlite = new SQLite(path.join(carpetaDatos, 'repartidores.sqlite'));
 sqlite.pragma('journal_mode = WAL');
 sqlite.pragma('foreign_keys = ON');
-sqlite.exec(fs.readFileSync(path.join(raiz, 'esquema.sql'), 'utf8'));
+sqlite.exec(fs.readFileSync(path.join(proyecto, 'base_datos', 'esquema.sql'), 'utf8'));
 
 const db = {
     prepare(sql) {
@@ -34,9 +35,9 @@ const db = {
 };
 
 const archivos = new Map([
-    ['/', ['chido.html', 'text/html; charset=utf-8']],
-    ['/chido.html', ['chido.html', 'text/html; charset=utf-8']],
-    ['/adaptador-datos.js', ['adaptador-datos.js', 'application/javascript; charset=utf-8']]
+    ['/', [path.join(proyecto, 'repartidores.html'), 'text/html; charset=utf-8']],
+    ['/repartidores.html', [path.join(proyecto, 'repartidores.html'), 'text/html; charset=utf-8']],
+    ['/adaptador-datos.js', [path.join(raiz, 'adaptador-datos.js'), 'application/javascript; charset=utf-8']]
 ]);
 const puerto = Number(process.argv[2] || 58734);
 http.createServer(async (req, res) => {
@@ -62,7 +63,7 @@ http.createServer(async (req, res) => {
         const archivo = archivos.get(url.pathname);
         if (!archivo) { res.writeHead(404); res.end(); return; }
         res.writeHead(200, { 'Content-Type': archivo[1], 'Cache-Control': 'no-store' });
-        fs.createReadStream(path.join(raiz, archivo[0])).pipe(res);
+        fs.createReadStream(archivo[0]).pipe(res);
     } catch (e) {
         console.error(e);
         res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
