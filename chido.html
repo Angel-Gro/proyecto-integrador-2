@@ -1,0 +1,1325 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plataforma Logística Zona de Repartidores - Av. Acueducto</title>
+
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" onerror="this.onerror=null;this.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+    <script>
+        function cargarScriptMapa(url) {
+            return new Promise(resolve => {
+                const script = document.createElement('script');
+                const fin = ok => { clearTimeout(timer); script.onload = script.onerror = null; if (!ok) script.remove(); resolve(ok); };
+                const timer = setTimeout(() => fin(false), 10000);
+                script.onload = () => fin(true); script.onerror = () => fin(false);
+                script.src = url; document.head.appendChild(script);
+            });
+        }
+        window.mapaDisponible = (async () => {
+            for (const base of ['https://cdn.jsdelivr.net/npm/', 'https://unpkg.com/']) {
+                if (window.L || await cargarScriptMapa(base + 'leaflet@1.9.4/dist/leaflet.js')) {
+                    if (!window.L) continue;
+                    cargarScriptMapa(base + 'leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.min.js');
+                    return true;
+                }
+            }
+            return false;
+        })();
+    </script>
+
+    <script src="adaptador-datos.js"></script>
+
+    <style>
+        :root {
+            --color-didi: #ff8c00;
+            --color-store: #e63946;
+            --color-driver: #2a9d8f;
+            --color-admin: #1e293b;
+            --bg-light: #f8fafc;
+            --border-sky: #0284c7;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', system-ui, sans-serif; }
+        body { background: #f1f5f9; color: #1e293b; padding: 10px; }
+
+        /* Vistas Modulares */
+        .view-panel { display: none; }
+        .view-panel.active { display: block; animation: fadeIn 0.3s ease; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* Estilos de Tarjetas e Inputs */
+        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.04); margin-bottom: 15px; border: 1px solid #e2e8f0; }
+        h2 { margin-bottom: 15px; font-size: 1.25rem; border-bottom: 2px solid #f1f5f9; padding-bottom: 6px; color: #0f172a; }
+        .form-group { margin-bottom: 12px; }
+        .form-group label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; color: #475569; }
+        input, select { width: 100%; padding: 10px; border: 2px solid #e2e8f0; border-radius: 8px; outline: none; font-size: 0.95rem; background: #ffffff; }
+        input:focus { border-color: var(--color-didi); }
+
+        .navbar { display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; border-radius: 10px; color: white; margin-bottom: 15px; }
+        .btn-logout { background: rgba(255,255,255,0.25); border: none; color: white; padding: 6px 12px; border-radius: 6px; font-weight: bold; cursor: pointer; }
+        .btn-action:disabled { opacity: .5; cursor: not-allowed; }
+        .btn-action { width: 100%; padding: 11px; border: none; border-radius: 8px; font-size: 0.95rem; font-weight: bold; color: white; cursor: pointer; }
+
+        /* Cuadro de Validación Blanco Limpio */
+        .val-box-clean { background: #ffffff; padding: 15px; border-radius: 8px; border: 2px dashed #cbd5e1; margin-bottom: 15px; }
+        .val-box-clean label { color: #475569; font-size: 0.85rem; font-weight: 600; }
+        .val-row { display: flex; gap: 8px; margin-top: 5px; }
+        .btn-val-clean { background: transparent; color: var(--border-sky); border: 2px solid var(--border-sky); padding: 0 16px; border-radius: 20px; font-weight: bold; cursor: pointer; transition: all 0.2s; }
+        .btn-val-clean:hover { background: var(--border-sky); color: white; }
+        .val-status { font-size: 0.85rem; font-weight: bold; margin-top: 6px; display: none; }
+
+        /* Grid */
+        .grid { display: grid; grid-template-columns: 1fr 1.4fr; gap: 15px; }
+        @media (max-width: 850px) { .grid { grid-template-columns: 1fr; } }
+
+        /* API Mapa en Tiempo Real */
+        #live-map { height: 440px; border-radius: 12px; border: 2px solid #e2e8f0; z-index: 1; }
+
+        /* Tablas */
+        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        th, td { padding: 10px; border-bottom: 1px solid #e2e8f0; text-align: left; }
+        th { background: #f8fafc; color: #64748b; font-weight: 600; }
+        .badge { padding: 3px 6px; border-radius: 4px; color: white; font-weight: bold; font-size: 0.75rem; }
+        .bg-wait { background: #f59e0b; }
+        .bg-go { background: #3b82f6; }
+        .bg-ok { background: #10b981; }
+        .btn-delete { background: #ef4444; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer; }
+        .login-error { color: #ef4444; font-size: 0.85rem; margin-top: 10px; display: none; text-align: center; }
+
+        /* ===== Admin: shell, menú lateral y módulos ===== */
+        .adm-shell { display: grid; grid-template-columns: 250px 1fr; gap: 15px; align-items: start; }
+        .adm-shell.collapsed { grid-template-columns: 0 1fr; }
+        .adm-shell.collapsed .adm-side { display: none; }
+        .adm-side { background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px; position: sticky; top: 10px; }
+        .adm-item { display: flex; gap: 10px; align-items: center; width: 100%; text-align: left; background: transparent; border: none; padding: 12px; border-radius: 8px; cursor: pointer; color: #334155; font-size: 0.85rem; margin-bottom: 4px; }
+        .adm-item:hover { background: #f1f5f9; }
+        .adm-item.active { background: #eff6ff; color: #2563eb; font-weight: 600; }
+        .adm-view { display: none; min-width: 0; } .adm-view.active { display: block; animation: fadeIn 0.3s ease; }
+        .sub { color: #64748b; font-size: 0.85rem; margin: -8px 0 15px; }
+        .filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+        .filters .form-group { flex: 1; min-width: 150px; margin-bottom: 0; }
+        .btn-blue { background: #2563eb; color: white; border: none; border-radius: 8px; padding: 11px 18px; font-weight: 600; cursor: pointer; }
+        .btn-ghost { background: white; color: #334155; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 16px; font-weight: 600; cursor: pointer; }
+        .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 15px; }
+        .kpi { background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; }
+        .kpi small { color: #64748b; font-size: 0.75rem; display: block; } .kpi b { font-size: 1.5rem; color: #0f172a; } .kpi span { color: #94a3b8; font-size: 0.72rem; display: block; }
+        .row-between { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .pager { display: flex; gap: 6px; justify-content: space-between; align-items: center; margin-top: 12px; font-size: 0.8rem; color: #64748b; flex-wrap: wrap; }
+        .pager button { border: 1px solid #cbd5e1; background: white; border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+        .pager button.on { background: #2563eb; color: white; border-color: #2563eb; } .pager button:disabled { opacity: .4; cursor: default; }
+        .est { padding: 3px 8px; border-radius: 6px; font-size: 0.72rem; font-weight: 600; }
+        .est-Aprobada { background: #dcfce7; color: #15803d; } .est-Evaluacion { background: #ffedd5; color: #c2410c; } .est-NoAprobada { background: #fee2e2; color: #b91c1c; } .est-Actual { background: #dbeafe; color: #1d4ed8; }
+        .bar { height: 6px; background: #e2e8f0; border-radius: 4px; min-width: 60px; } .bar i { display: block; height: 100%; background: #2563eb; border-radius: 4px; }
+        .btn-eye { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; border-radius: 6px; padding: 3px 9px; cursor: pointer; }
+        .empty { text-align: center; color: #94a3b8; padding: 18px; font-size: 0.85rem; }
+        .modal-bg { position: fixed; inset: 0; background: rgba(15,23,42,.5); display: none; align-items: center; justify-content: center; z-index: 9999; padding: 15px; }
+        .modal-bg.on { display: flex; } .modal { background: white; border-radius: 12px; padding: 22px; max-width: 420px; width: 100%; }
+        .leaflet-routing-container { display: none; }
+        .drawing .leaflet-interactive { pointer-events: none !important; } /* al dibujar, los clics llegan al mapa y no a zonas existentes */
+        .adm-map { height: 340px; border-radius: 12px; border: 2px solid #e2e8f0; z-index: 1; }
+        .leg { display: flex; gap: 14px; flex-wrap: wrap; font-size: 0.75rem; color: #64748b; margin-top: 8px; } .leg i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 4px; vertical-align: -2px; }
+        @media (max-width: 850px) { .adm-shell { grid-template-columns: 1fr; } .adm-side { position: static; } }
+    </style>
+</head>
+<body>
+
+<div id="panel-preparacion" class="view-panel">
+    <div class="card" style="max-width: 420px; margin: 70px auto; padding: 30px;">
+        <h1 style="color: var(--color-didi); margin-bottom: 10px;">Preparar administración</h1>
+        <p style="color: #64748b; margin-bottom: 20px;">Crea la primera cuenta para administrar este prototipo.</p>
+        <div class="form-group"><label>Correo del administrador</label><input id="preparar-email" type="email" autocomplete="email"></div>
+        <div class="form-group"><label>Contraseña (10 caracteres o más)</label><input id="preparar-pass" type="password" autocomplete="new-password"></div>
+        <div class="form-group"><label>Código de preparación (solo versión web)</label><input id="preparar-codigo" type="password"></div>
+        <button class="btn-action" style="background: var(--color-didi);" onclick="crearAdminInicial()">Crear administrador</button>
+        <div id="preparar-error" class="login-error"></div>
+    </div>
+</div>
+
+<div id="panel-login" class="view-panel active">
+    <div class="card" style="max-width: 420px; margin: 70px auto; padding: 30px;">
+        <h1 style="color: var(--color-didi); text-align: center; margin-bottom: 5px; font-weight: 800;">ZONA DE REPARTIDORES</h1>
+        <p style="text-align: center; color: #64748b; font-size: 0.85rem; margin-bottom: 20px;">Portal de Acceso Protegido - Área Escobedo</p>
+
+        <div class="form-group">
+            <label>Tipo de Perfil</label>
+            <select id="login-role">
+                <option value="tienda">Portal de Taquería / Tienda</option>
+                <option value="repartidor">Portal de Repartidor</option>
+                <option value="admin">Administrador</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Identificador de Usuario / Email</label>
+            <input type="text" id="login-email" placeholder="Ej. T1 o R1, o tu correo" autocomplete="username">
+        </div>
+        <div class="form-group">
+            <label>Contraseña de Seguridad</label>
+            <input type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password">
+        </div>
+        <button id="btn-login" class="btn-action" style="background: var(--color-didi);" onclick="procesarLogin()">Iniciar Sesión Seguro</button>
+        <div id="login-error" class="login-error"></div>
+    </div>
+</div>
+
+<div id="panel-store" class="view-panel">
+    <div class="navbar" style="background: var(--color-store);">
+        <div>
+            <h1 id="lbl-store-title">Taquería de la Red</h1>
+            <p id="lbl-store-sub" style="font-size: 0.85rem; opacity: 0.9;"></p>
+        </div>
+        <button class="btn-logout" onclick="logout()">Cerrar Sesión</button>
+    </div>
+    <div class="grid">
+        <div class="card">
+            <h2>Crear Nueva Orden de Despacho</h2>
+            <form id="form-store" onsubmit="crearPedidoDidi(event)">
+                <div class="form-group">
+                    <label>Nombre Completo del Comprador</label>
+                    <input type="text" id="order-customer" placeholder="Ej. Cliente C2 o C3" required>
+                </div>
+
+                <div class="val-box-clean">
+                    <label>Dirección de Destino de Alimentos</label>
+                    <div class="val-row">
+                        <input type="text" id="order-address" placeholder="Ej. Av. Acueducto, Hacienda del Topo" required>
+                        <button type="button" class="btn-val-clean" onclick="validarUbicacionSemantica()">Validar</button>
+                    </div>
+                    <div id="val-status-store" class="val-status"></div>
+                </div>
+
+                <div class="form-group">
+                    <label>Unidades de Carga Ocupadas ($Q$)</label>
+                    <select id="order-volume">
+                        <option value="1">1 Bolsa (Chico)</option>
+                        <option value="2">2 Bolsas (Mediano)</option>
+                        <option value="3">3 Bolsas (Grande)</option>
+                    </select>
+                </div>
+                <button type="submit" id="btn-submit-order" class="btn-action" style="background: var(--color-store);" disabled>Publicar en Red Compartida</button>
+            </form>
+        </div>
+        <div class="card">
+            <h2>Órdenes despachadas por tu Sucursal</h2>
+            <table>
+                <thead><tr><th>ID</th><th>Comprador</th><th>Dirección Validada</th><th>Carga</th><th>Repartidor</th><th>Distancia</th><th>Estatus</th></tr></thead>
+                <tbody id="table-store-orders"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div id="panel-driver" class="view-panel">
+    <div class="navbar" style="background: var(--color-driver);">
+        <div>
+            <h1 id="lbl-driver-title">Repartidor Conectado</h1>
+            <p style="font-size: 0.85rem; opacity: 0.9;">Mochila Térmica: <span id="lbl-driver-capacity">0/4</span> u</p>
+        </div>
+        <button class="btn-logout" onclick="logout()">Cerrar Sesión</button>
+    </div>
+    <div class="grid">
+        <div class="card">
+            <h2>Optimización de Rutas (PDP Heurístico)</h2>
+            <button class="btn-action" style="background: var(--color-didi); margin-bottom: 15px;" onclick="calcularRutaOptimaHeuristica()">Calcular Ruta Optima</button>
+
+            <div id="driver-empty" style="color: #64748b; font-size: 0.9rem;">Esperando asignación de ruta por el algoritmo...</div>
+            <div id="driver-active" style="display: none;">
+                <p style="font-size: 0.85rem; font-weight: bold; margin-bottom: 5px; color:#475569;">SECUENCIA DE PASOS COMPUTADA CORRECTA (RECOLECCIÓN ANTES):</p>
+                <ol id="driver-itinerary-list" style="margin-left: 20px; font-size: 0.9rem; margin-bottom: 15px; color: #0f172a;"></ol>
+                <button id="btn-completar" class="btn-action" style="background: #10b981;" onclick="completarEntregasDriver()">Marcar Itinerario como Entregado</button>
+            </div>
+
+            <h3 style="margin-top: 20px; font-size: 0.95rem; margin-bottom: 8px; color: #475569;">Tus Pedidos Asignados por Cercanía Heurística</h3>
+            <table>
+                <thead><tr><th>Origen</th><th>Cliente</th><th>Carga</th><th>Distancia</th><th>Estado</th></tr></thead>
+                <tbody id="table-driver-assigned-pool"></tbody>
+            </table>
+        </div>
+        <div class="card">
+            <h2>Mapa de reparto y ubicación</h2>
+            <div id="live-map"></div>
+            <button class="btn-ghost" style="margin-top:8px" onclick="abrirGoogleMaps('repartidor')">Abrir ubicación en Google Maps</button>
+        </div>
+    </div>
+</div>
+
+<div id="panel-admin" class="view-panel">
+    <div class="navbar" style="background: var(--color-admin);">
+        <div style="display:flex; align-items:center; gap:12px;">
+            <button class="btn-logout" onclick="document.getElementById('adm-shell').classList.toggle('collapsed')" title="Menú">☰</button>
+            <h1 id="adm-titulo">Módulo de Administración (Alta / Baja de Personal)</h1>
+        </div>
+        <button class="btn-logout" onclick="logout()">Cerrar Sesión</button>
+    </div>
+    <div id="banner-permisos" style="display:none;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:.85rem;line-height:1.5;"></div>
+    <div class="adm-shell" id="adm-shell">
+        <aside class="adm-side">
+            <button class="adm-item active" data-v="alta" onclick="admVista('alta')">👥 <span>Alta / Baja de personal</span></button>
+            <button class="adm-item" data-v="reportes" onclick="admVista('reportes')">📊 <span>Reportes históricos y KPIs de kilómetros ahorrados por repartidor y por semana</span></button>
+            <button class="adm-item" data-v="prediccion" onclick="admVista('prediccion')">📈 <span>Predicción de demanda por horario y zona, con base en el historial de pedidos</span></button>
+            <button class="adm-item" data-v="expansion" onclick="admVista('expansion')">🗺️ <span>Expansión del polígono de cobertura a avenidas y colonias adicionales</span></button>
+        </aside>
+        <main>
+        <section id="adm-v-alta" class="adm-view active">
+    <div class="card">
+        <h2>Dar de Alta Nueva Entidad en el Sistema</h2>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end;">
+            <div class="form-group" style="flex: 1; min-width: 150px;">
+                <label>Tipo de Cuenta</label>
+                <select id="adm-new-role">
+                    <option value="tienda">Nueva Taquería / Comercio</option>
+                    <option value="repartidor">Nuevo Repartidor en Moto</option>
+                </select>
+            </div>
+            <div class="form-group" style="flex: 1; min-width: 150px;">
+                <label>Identificador (ID)</label>
+                <input type="text" id="adm-new-id" placeholder="Ej. T8 o R3">
+            </div>
+            <div class="form-group" style="flex: 1; min-width: 150px;">
+                <label>Nombre Comercial / Chofer</label>
+                <input type="text" id="adm-new-name" placeholder="Ej. Tacos del Norte">
+            </div>
+            <div class="form-group" style="flex: 1; min-width: 150px;">
+                <label>Ubicación / Colonia Base</label>
+                <input type="text" id="adm-new-address" placeholder="Ej. Hacienda del Topo">
+            </div>
+        </div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-top: 10px;">
+            <div class="form-group" style="flex: 1; min-width: 200px;">
+                <label>Correo de acceso para esta entidad</label>
+                <input type="email" id="adm-new-email" placeholder="ej. taqueriaT8@correo.com">
+            </div>
+            <div class="form-group" style="flex: 1; min-width: 200px;">
+                <label>Contraseña temporal (mín. 10 caracteres)</label>
+                <input type="text" id="adm-new-pass" placeholder="Contraseña temporal">
+            </div>
+            <div class="form-group" style="height: 42px;">
+                <button class="btn-action" style="background: #10b981; padding: 10px 20px;" onclick="crearEntidadPorAdmin()">Registrar Alta</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid" style="grid-template-columns: 1fr 1fr;">
+        <div class="card">
+            <h2>Taquerías Operativas Autorizadas</h2>
+            <table>
+                <thead><tr><th>ID</th><th>Nombre de Taquería</th><th>Ubicación Asignada</th><th>Baja</th></tr></thead>
+                <tbody id="table-admin-stores"></tbody>
+            </table>
+        </div>
+        <div class="card">
+            <h2>Repartidores Activos Autorizados</h2>
+            <table>
+                <thead><tr><th>ID</th><th>Nombre</th><th>Estado Mochila</th><th>Baja</th></tr></thead>
+                <tbody id="table-admin-drivers"></tbody>
+            </table>
+        </div>
+    </div>
+            <div class="card"><h2>Datos de demostración</h2>
+                <p class="sub">Carga 8 semanas de reportes, historial de demanda y zonas de expansión de ejemplo para probar Reportes, Predicción y Expansión. También puedes importar un archivo histórico propio (.json). Todo lo cargado se marca como demostración y se puede borrar en cualquier momento sin afectar los datos reales.</p>
+                <div class="filters"><button class="btn-blue" onclick="cargarDemo()">Cargar datos de demostración</button><button class="btn-ghost" onclick="borrarDemo()">Eliminar datos de demostración</button><button class="btn-ghost" onclick="exportarHistorico()">⬇ Exportar histórico (.json)</button><label class="btn-ghost" style="cursor:pointer">⬆ Importar histórico (.json)<input type="file" id="imp-file" accept=".json,application/json" hidden onchange="importarHistorico(this)"></label></div>
+            </div>
+        </section>
+
+        <section id="adm-v-reportes" class="adm-view">
+            <div class="card"><h2>Reportes Históricos y KPIs</h2>
+                <p class="sub">Consulta y analiza los reportes históricos de kilómetros ahorrados por repartidor y por semana.</p>
+                <div class="filters">
+                    <div class="form-group"><label>Fecha inicial</label><input type="date" id="rp-f1"></div>
+                    <div class="form-group"><label>Fecha final</label><input type="date" id="rp-f2"></div>
+                    <div class="form-group"><label>Repartidor</label><select id="rp-rep"></select></div>
+                    <div class="form-group"><label>Zona / Colonia</label><select id="rp-zona"></select></div>
+                    <button class="btn-blue" onclick="admState.rp=1;renderReportes()">Filtrar</button>
+                    <button class="btn-ghost" onclick="rpLimpiar()">Limpiar filtros</button>
+                </div>
+            </div>
+            <div class="kpis" id="rp-kpis"></div>
+            <div class="card"><div class="row-between"><h2 style="flex:1">Historial de Reportes</h2><button class="btn-ghost" onclick="rpExportar()">⬇ Exportar CSV</button></div>
+                <div style="overflow-x:auto"><table><thead><tr><th>Semana (inicio)</th><th>Semana (fin)</th><th>Repartidor</th><th>Zona / Colonia</th><th>Km ahorrados</th><th>Pedidos</th><th>% Ahorro</th><th>Acciones</th></tr></thead><tbody id="rp-body"></tbody></table></div>
+                <div class="pager" id="rp-pager"></div>
+            </div>
+        </section>
+
+        <section id="adm-v-prediccion" class="adm-view">
+            <div class="card"><h2>Predicción de Demanda</h2>
+                <p class="sub">Consulta la predicción de demanda de pedidos por horario y zona para apoyar la planeación operativa.</p>
+                <div class="filters">
+                    <div class="form-group"><label>Fecha</label><input type="date" id="pr-fecha"></div>
+                    <div class="form-group"><label>Zona / Colonia</label><select id="pr-zona"></select></div>
+                    <div class="form-group"><label>Día de la semana</label><select id="pr-dia"><option value="">Todos los días</option><option value="1">Lunes</option><option value="2">Martes</option><option value="3">Miércoles</option><option value="4">Jueves</option><option value="5">Viernes</option><option value="6">Sábado</option><option value="0">Domingo</option></select></div>
+                    <div class="form-group"><label>Horario</label><select id="pr-hor"><option value="0-24">Todos los horarios</option><option value="6-12">Mañana (06-12)</option><option value="12-18">Tarde (12-18)</option><option value="18-24">Noche (18-24)</option></select></div>
+                    <button class="btn-blue" onclick="renderPrediccion()">Predecir</button>
+                    <button class="btn-ghost" onclick="prLimpiar()">Limpiar filtros</button>
+                </div>
+            </div>
+            <div class="kpis" id="pr-kpis"></div>
+            <div class="grid" style="grid-template-columns: 1.4fr 1fr;">
+                <div class="card"><h2>Predicción de Demanda por Hora</h2><div id="pr-chart"></div><p class="sub" style="margin:8px 0 0">* Generada con el historial de pedidos registrados en la plataforma.</p></div>
+                <div class="card"><h2>Predicción por Zona (Top 5)</h2><table><thead><tr><th>Zona</th><th>Pedidos</th><th>% del total</th></tr></thead><tbody id="pr-zonas"></tbody></table></div>
+            </div>
+            <div class="row-between"><p class="sub" style="margin:0">Esta predicción ayuda a anticipar la demanda para tomar mejores decisiones en la asignación de repartidores.</p><button class="btn-ghost" onclick="prExportar()">⬇ Exportar predicción</button></div>
+        </section>
+
+        <section id="adm-v-expansion" class="adm-view">
+            <div class="card"><h2>Expansión del Polígono de Cobertura</h2>
+                <p class="sub">Administra y evalúa la expansión del polígono de cobertura a nuevas avenidas y colonias.</p>
+                <div class="filters">
+                    <div class="form-group" style="flex:2"><label>Buscar por nombre</label><input type="text" id="ex-q" placeholder="Ej. Jardines"></div>
+                    <div class="form-group"><label>Zona / Colonia</label><select id="ex-zona"></select></div>
+                    <div class="form-group"><label>Tipo de expansión</label><select id="ex-tipo"><option value="">Todos los tipos</option><option>Colonia</option><option>Avenida</option></select></div>
+                    <div class="form-group"><label>Estatus</label><select id="ex-est"><option value="">Todos los estatus</option><option>Cobertura actual</option><option>Aprobada</option><option>En evaluación</option><option>No aprobada</option></select></div>
+                    <button class="btn-blue" onclick="admState.ex=1;renderExpansion()">Filtrar</button>
+                    <button class="btn-ghost" onclick="exLimpiar()">Limpiar filtros</button>
+                </div>
+            </div>
+            <div class="kpis" id="ex-kpis"></div>
+            <div class="card"><h2>Registrar nueva zona (dibuja el perímetro en el mapa)</h2>
+                <div class="filters">
+                    <div class="form-group" style="flex:2"><label>Nombre de la colonia / avenida</label><input type="text" id="ex-new-name" placeholder="Ej. Jardines de la Florida"></div>
+                    <div class="form-group"><label>Zona de referencia</label><input type="text" id="ex-new-zona" placeholder="Ej. Hacienda del Topo"></div>
+                    <div class="form-group"><label>Tipo</label><select id="ex-new-tipo"><option>Colonia</option><option>Avenida</option></select></div>
+                    <div class="form-group"><label>Estatus</label><select id="ex-new-est"><option>En evaluación</option><option>Aprobada</option><option>No aprobada</option><option>Cobertura actual</option></select></div>
+                </div>
+                <div class="filters" style="margin-top:12px">
+                    <button class="btn-ghost" onclick="exIniciarDibujo()">✏️ Dibujar perímetro</button>
+                    <button class="btn-ghost" onclick="exDeshacer()">↶ Deshacer punto</button>
+                    <button class="btn-ghost" onclick="exCancelar()">Cancelar</button>
+                    <span id="ex-pts" style="color:#64748b;font-size:.85rem;align-self:center">0 puntos (mínimo 3)</span>
+                    <button class="btn-action" style="background:#10b981;width:auto;padding:11px 18px;margin-left:auto" onclick="exGuardar()">Guardar zona</button>
+                </div>
+            </div>
+            <div class="grid" style="grid-template-columns: 1.2fr 1fr;">
+                <div class="card"><div class="row-between"><h2 style="flex:1">Colonias y Avenidas en Evaluación / Expansión</h2><button class="btn-ghost" onclick="exExportar()">⬇ Exportar reporte</button></div>
+                    <div style="overflow-x:auto"><table><thead><tr><th>Colonia / Avenida</th><th>Zona</th><th>Tipo</th><th>Estatus</th><th>Fecha</th><th></th></tr></thead><tbody id="ex-body"></tbody></table></div>
+                    <div class="pager" id="ex-pager"></div>
+                </div>
+                <div class="card"><h2>Mapa de Cobertura Actual y Expansiones</h2><div id="ex-map" class="adm-map"></div><button class="btn-ghost" style="margin-top:8px" onclick="abrirGoogleMaps('expansion')">Abrir ubicación en Google Maps</button>
+                    <div class="leg"><span><i style="background:#2563eb"></i>Cobertura actual</span><span><i style="background:#16a34a"></i>Aprobada</span><span><i style="background:#f59e0b"></i>En evaluación</span><span><i style="background:#dc2626"></i>No aprobada</span></div>
+                </div>
+            </div>
+            <p class="sub">La expansión de cobertura se basa en la demanda estimada, capacidad operativa y criterios de negocio.</p>
+        </section>
+        </main>
+    </div>
+</div>
+
+<div id="modal" class="modal-bg" onclick="if(event.target===this)this.classList.remove('on')"><div class="modal" id="modal-body"></div></div>
+
+<script>
+
+    const db = window.db;
+    const auth = window.auth;
+    const secondaryAuth = window.secondaryAuth;
+
+    const LAT_BASE = 25.7795;
+    const LNG_BASE = -100.3297;
+/*
+    // Siembra los datos de prueba UNA sola vez, solo si las colecciones están vacías.
+    async function inicializarBaseDeDatosPrueba() {
+        const tiendasSnap = await db.collection('tiendas').limit(1).get();
+        if (tiendasSnap.empty) {
+            const tiendasPrueba = {
+                "T1": { id: "T1", nombre: "Tacos Los Reyes", colonia: "Raúl Caballero", lat: 25.7795, lng: -100.3297 },
+                "T2": { id: "T2", nombre: "Los Padrinos Tacos y Chilaquiles", colonia: "Provileón", lat: 25.7876, lng: -100.3335 },
+                "T3": { id: "T3", nombre: "Taquería Elorza", colonia: "Balcones de Anáhuac", lat: 25.7668, lng: -100.3234 },
+                "T4": { id: "T4", nombre: "Pollo y Carne Asada Los Primos", colonia: "Las Lomas", lat: 25.7772, lng: -100.3285 },
+                "T5": { id: "T5", nombre: "Tacos Flash", colonia: "Balcones de Anáhuac", lat: 25.7667, lng: -100.3240 },
+                "T6": { id: "T6", nombre: "Las Gordas", colonia: "Balcones de Anáhuac", lat: 25.7645, lng: -100.3226 },
+                "T7": { id: "T7", nombre: "Tacos El Chiva", colonia: "Hacienda del Topo", lat: 25.7858, lng: -100.3319 }
+            };
+            for (const id in tiendasPrueba) {
+                await db.collection('tiendas').doc(id).set(tiendasPrueba[id]);
+            }
+        }
+
+        const repartidoresSnap = await db.collection('repartidores').limit(1).get();
+        if (repartidoresSnap.empty) {
+            const repartidoresPrueba = {
+                "R1": { id: "R1", nombre: "Repartidor 1 (ZE)", lat: 25.7790, lng: -100.3290, pedidosIds: [], carga: 0 },
+                "R2": { id: "R2", nombre: "Repartidor 2 (C6)", lat: 25.7650, lng: -100.3220, pedidosIds: [], carga: 0 }
+            };
+            for (const id in repartidoresPrueba) {
+                await db.collection('repartidores').doc(id).set(repartidoresPrueba[id]);
+            }
+        }
+    }
+*/
+    // Datos recientes cargados desde la API.
+    let baseTiendas = {};
+    let baseRepartidores = {};
+    let listaPedidos = [];
+
+    let usuarioConectado = null;   // ahora guarda el refId de negocio (ej. "T1", "R1") o null para admin
+    let rolConectado = null;       // 'admin' | 'tienda' | 'repartidor'
+    let validacionStoreExitosa = false;
+    let objetoMapaLeaflet = null;
+    let grupoMarcadoresMap = null;
+    let mapaCorreosPorRefId = {}; // ej. { "T1": "correo@tienda.com", "R1": "correo@repartidor.com" }
+
+    // ---------- Utilidades ----------
+    const $ = id => document.getElementById(id);
+    const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const errTxt = e => (e && e.message) || String(e);
+    const sinPermiso = new Set();
+    function avisarPermiso(n, e) {
+        if (!e || e.code !== 'permission-denied') return;
+        sinPermiso.add(n); const b = $('banner-permisos'); if (!b) return;
+        const u = auth.currentUser ? auth.currentUser.uid : '?';
+        b.style.display = 'block';
+        b.textContent = `No se pudo consultar: ${[...sinPermiso].join(', ')}. Inicia sesión de nuevo o consulta al administrador.`;
+    }
+    const NOMBRE_ROL = { tienda: 'Taquería / Tienda', repartidor: 'Repartidor', admin: 'Administrador' };
+    let rolSolicitado = null;
+    let unsubs = [];
+    let listaReportes = [], listaExpansiones = [], listaHistorial = [];
+    let accesosSincronizados = false;
+
+    // ---------- Actualización de datos ----------
+    function detenerListeners() { unsubs.forEach(u => u()); unsubs = []; accesosSincronizados = false; sinPermiso.clear(); const b = $('banner-permisos'); if (b) b.style.display = 'none'; }
+
+    function refrescarTodo() {
+        actualizarTablasVisuales();
+        if (rolConectado === 'admin') renderAdmin();
+        if (rolConectado === 'repartidor') { dibujarMarcadoresEnMapaApi(); if ($('driver-active').style.display === 'block') pintarItinerario(); }
+        if (rolConectado === 'tienda') asignarPendientes();
+    }
+
+    function iniciarListeners() {
+        detenerListeners();
+        const fallo = n => e => { console.error('Datos [' + n + ']:', e.code, e.message); avisarPermiso(n, e); };
+        const ref = (n, q) => unsubs.push(q.onSnapshot(snap => {
+            const d = {}; snap.forEach(x => d[x.id] = x.data());
+            if (n === 'tiendas') baseTiendas = d;
+            else if (n === 'repartidores') baseRepartidores = d;
+            refrescarTodo();
+        }, fallo(n)));
+        ref('tiendas', db.collection('tiendas'));
+        ref('repartidores', db.collection('repartidores'));
+
+        let qp = db.collection('pedidos');
+        if (rolConectado === 'tienda') qp = qp.where('tienda', '==', usuarioConectado);
+        else if (rolConectado === 'repartidor') qp = qp.where('repartidorAsignado', '==', usuarioConectado);
+        unsubs.push(qp.onSnapshot(snap => {
+            listaPedidos = []; snap.forEach(x => listaPedidos.push({ ...x.data(), id: x.id }));
+            refrescarTodo();
+        }, fallo('pedidos')));
+
+        if (rolConectado === 'admin') {
+            unsubs.push(db.collection('usuarios').onSnapshot(snap => {
+                mapaCorreosPorRefId = {};
+                const b = db.batch(); let n = 0;
+                snap.forEach(x => { const d = x.data(); if (d.refId) { mapaCorreosPorRefId[d.refId] = d.email;
+                    if (!accesosSincronizados) { b.set(db.collection('accesos').doc(d.refId), { email: d.email, rol: d.rol }); n++; } } });
+                if (!accesosSincronizados && n) b.commit().catch(fallo('accesos'));
+                accesosSincronizados = true;
+                refrescarTodo();
+            }, fallo('usuarios')));
+            unsubs.push(db.collection('reportes').onSnapshot(snap => { listaReportes = []; snap.forEach(x => listaReportes.push({ ...x.data(), id: x.id })); refrescarTodo(); }, fallo('reportes')));
+            unsubs.push(db.collection('colonias').onSnapshot(snap => { listaExpansiones = []; snap.forEach(x => listaExpansiones.push({ ...x.data(), id: x.id })); refrescarTodo(); }, fallo('colonias')));
+            unsubs.push(db.collection('historialDemanda').onSnapshot(snap => { listaHistorial = []; snap.forEach(x => listaHistorial.push(x.data())); refrescarTodo(); }, fallo('historialDemanda')));
+        }
+    }
+
+    // ---------- Autenticación con validación de perfil ----------
+    // El perfil elegido en el login debe coincidir con el rol guardado en 'usuarios/{uid}';
+    // si no coincide, se cierra la sesión (ej. correo de repartidor en el portal de taquería).
+    auth.onAuthStateChanged(async (user) => {
+        detenerListeners();
+        document.querySelectorAll('.view-panel').forEach(p => p.classList.remove('active'));
+        destruirMapa();
+
+        if (!user) {
+            $('panel-login').classList.add('active');
+            usuarioConectado = null; rolConectado = null;
+            baseTiendas = {}; baseRepartidores = {}; listaPedidos = []; listaReportes = []; listaExpansiones = []; listaHistorial = [];
+            mostrarPreparacion();
+            return;
+        }
+
+        const rechazar = async (msg) => { rolSolicitado = null; await auth.signOut(); mostrarErrorLogin(msg); };
+        let perfil;
+        try {
+            const snap = await db.collection('usuarios').doc(user.uid).get();
+            if (!snap.exists) return rechazar("Esta cuenta no tiene un perfil asignado o fue dada de baja. Contacta al administrador.");
+            perfil = snap.data();
+        } catch (e) { return rechazar("No se pudo verificar tu perfil. Revisa la conexión con el servidor local."); }
+
+        if (!NOMBRE_ROL[perfil.rol]) return rechazar("Rol desconocido en el perfil de esta cuenta.");
+        if (rolSolicitado && perfil.rol !== rolSolicitado)
+            return rechazar(`Acceso denegado: esta cuenta no pertenece al perfil "${NOMBRE_ROL[rolSolicitado]}".`);
+
+        if (perfil.rol !== 'admin') {
+            try {
+                const ent = await db.collection(perfil.rol === 'tienda' ? 'tiendas' : 'repartidores').doc(perfil.refId).get();
+                if (!ent.exists) return rechazar("Esta cuenta fue dada de baja del sistema.");
+            } catch (e) { return rechazar("No se pudo verificar tu cuenta."); }
+        }
+
+        rolSolicitado = null;
+        rolConectado = perfil.rol;
+        usuarioConectado = perfil.refId || null;
+        $('login-pass').value = '';
+        iniciarListeners();
+        $('panel-' + (rolConectado === 'tienda' ? 'store' : rolConectado === 'repartidor' ? 'driver' : 'admin')).classList.add('active');
+        if (rolConectado === 'repartidor') setTimeout(inicializarMapaApiReal, 150);
+        if (rolConectado === 'admin') admVista('alta');
+        actualizarTablasVisuales();
+    });
+
+    function mostrarErrorLogin(msg) {
+        const el = document.getElementById('login-error');
+        el.innerText = msg;
+        el.style.display = 'block';
+    }
+
+    async function mostrarPreparacion() {
+        try {
+            const r = await fetch('/api/preparacion', { cache: 'no-store' });
+            const d = await r.json();
+            if (d.pendiente && !auth.currentUser) {
+                $('panel-login').classList.remove('active');
+                $('panel-preparacion').classList.add('active');
+            }
+        } catch (_) {}
+    }
+
+    async function crearAdminInicial() {
+        const el = $('preparar-error');
+        el.style.display = 'none';
+        try {
+            const r = await fetch('/api/preparar', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: $('preparar-email').value.trim(), pass: $('preparar-pass').value, codigo: $('preparar-codigo').value }) });
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.error || 'No se pudo preparar la administración.');
+            $('panel-preparacion').classList.remove('active');
+            $('panel-login').classList.add('active');
+            $('login-role').value = 'admin';
+            $('login-email').value = $('preparar-email').value.trim();
+            $('preparar-pass').value = '';
+            $('preparar-codigo').value = '';
+            alert('Administrador creado. Inicia sesión con la contraseña que elegiste.');
+        } catch (e) { el.textContent = e.message; el.style.display = 'block'; }
+    }
+
+    async function procesarLogin() {
+        const rol = $('login-role').value;
+        const ident = $('login-email').value.trim();
+        const pass = $('login-pass').value;
+        $('login-error').style.display = 'none';
+        if (!ident || !pass) return mostrarErrorLogin("Ingresa tu usuario o correo y tu contraseña.");
+
+        const btn = $('btn-login'); btn.disabled = true; btn.innerText = 'Verificando...';
+        try {
+            rolSolicitado = rol;
+            await auth.signInWithEmailAndPassword(ident, pass);
+        } catch (e) {
+            rolSolicitado = null;
+            const net = e.code === 'auth/network-request-failed';
+            mostrarErrorLogin(net ? "Sin conexión. Intenta de nuevo." : e.code === 'auth/too-many-requests' ? "Demasiados intentos. Espera unos minutos." : "Usuario o contraseña incorrectos.");
+        } finally { btn.disabled = false; btn.innerText = 'Iniciar Sesión Seguro'; }
+    }
+    ['login-email', 'login-pass'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') procesarLogin(); }));
+
+    // ---------- Mapa del repartidor ----------
+    let mapaExp = null;
+    let ctrlRuta = null, rutaKey = '', motoMarker = null, animando = false;
+    function quitarRuteo() { if (ctrlRuta && objetoMapaLeaflet) { try { objetoMapaLeaflet.removeControl(ctrlRuta); } catch (_) {} } ctrlRuta = null; }
+    function destruirMapa() {
+        if (mapaExp) { mapaExp.remove(); mapaExp = null; }
+        exDibujo.on = false; exDibujo.pts = []; exDibujo.capa = null;
+        quitarRuteo(); rutaKey = ''; motoMarker = null;
+        if (objetoMapaLeaflet) { objetoMapaLeaflet.remove(); objetoMapaLeaflet = null; grupoMarcadoresMap = null; }
+    }
+    const PROVEEDORES = [
+        { u: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', o: { attribution: 'Tiles © Esri — Sources: Esri, HERE, Garmin, USGS, OpenStreetMap contributors' } },
+        { u: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', o: { subdomains: 'abcd', attribution: '© OpenStreetMap contributors © CARTO' } },
+        { u: 'https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png', o: { subdomains: 'abc', attribution: '© OpenStreetMap France' } }
+    ];
+    function abrirGoogleMaps(vista) {
+        const mapa = vista === 'expansion' ? mapaExp : objetoMapaLeaflet;
+        const p = mapa ? mapa.getCenter() : { lat: LAT_BASE, lng: LNG_BASE };
+        window.open('https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(p.lat + ',' + p.lng), '_blank', 'noopener,noreferrer');
+    }
+    function capaBase(map) {
+        let indice = -1, capa = null, timer = null, generacion = 0, cerrado = false;
+        const aviso = document.createElement('div');
+        aviso.style.cssText = 'display:none;position:absolute;inset:auto 10px 10px 10px;z-index:1000;background:#fef2f2;color:#991b1b;border:1px solid #fecaca;border-radius:8px;padding:8px 10px;font-size:12px;';
+        const mensaje = document.createElement('span'); mensaje.textContent = 'No se pudo cargar el mapa. Comprueba tu conexión. ';
+        const reintentar = document.createElement('button'); reintentar.type = 'button'; reintentar.textContent = 'Reintentar'; reintentar.className = 'btn-ghost';
+        aviso.append(mensaje, reintentar); map.getContainer().appendChild(aviso);
+        L.DomEvent.disableClickPropagation(aviso); L.DomEvent.disableScrollPropagation(aviso);
+        const siguiente = () => {
+            if (cerrado) return;
+            clearTimeout(timer); const turno = ++generacion;
+            if (capa) { capa.off(); map.removeLayer(capa); capa = null; }
+            indice++;
+            if (indice >= PROVEEDORES.length) { aviso.style.display = 'block'; return; }
+            let exitos = 0, errores = 0;
+            const vigente = () => !cerrado && turno === generacion;
+            const vigilar = () => {
+                clearTimeout(timer);
+                timer = setTimeout(() => { if (vigente() && !exitos && map.getSize().x > 0 && map.getSize().y > 0) siguiente(); }, 8000);
+            };
+            capa = L.tileLayer(PROVEEDORES[indice].u, { maxZoom: 19, ...PROVEEDORES[indice].o });
+            capa.on('loading', () => { if (vigente()) { exitos = 0; errores = 0; vigilar(); } });
+            capa.on('tileload', () => { if (vigente()) { exitos++; clearTimeout(timer); aviso.style.display = 'none'; } });
+            capa.on('tileerror', () => { if (vigente() && ++errores >= 3 && !exitos) siguiente(); });
+            capa.addTo(map); if (vigente()) vigilar();
+        };
+        const reiniciar = () => { indice = -1; aviso.style.display = 'none'; siguiente(); };
+        reintentar.addEventListener('click', reiniciar); window.addEventListener('online', reiniciar);
+        const ajustar = () => { if (!cerrado && map.getSize) map.invalidateSize({ pan: false, debounceMoveend: true }); };
+        const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(ajustar) : null;
+        if (observer) observer.observe(map.getContainer());
+        window.addEventListener('resize', ajustar);
+        map.once('unload', () => {
+            cerrado = true; generacion++; clearTimeout(timer); if (capa) capa.off();
+            if (observer) observer.disconnect(); window.removeEventListener('resize', ajustar);
+            window.removeEventListener('online', reiniciar); aviso.remove();
+        });
+        siguiente(); requestAnimationFrame(ajustar);
+    }
+    async function inicializarMapaApiReal() {
+        const el = $('live-map');
+        if (!el || rolConectado !== 'repartidor') return;
+        const uid = auth.currentUser && auth.currentUser.uid;
+        const listo = await window.mapaDisponible;
+        if (rolConectado !== 'repartidor' || !auth.currentUser || auth.currentUser.uid !== uid) return;
+        if (!listo || typeof L === 'undefined') { el.innerHTML = '<p class="empty">No se pudo cargar el mapa. Comprueba tu conexión y recarga la página.</p>'; return; }
+        destruirMapa(); el.innerHTML = '';
+        objetoMapaLeaflet = L.map(el).setView([LAT_BASE, LNG_BASE], 14);
+        capaBase(objetoMapaLeaflet);
+        grupoMarcadoresMap = L.layerGroup().addTo(objetoMapaLeaflet);
+        setTimeout(() => { if (objetoMapaLeaflet) { objetoMapaLeaflet.invalidateSize(); dibujarMarcadoresEnMapaApi(true); } }, 120);
+    }
+    const coordOk = o => o && Number.isFinite(o.lat) && Number.isFinite(o.lng);
+    function dibujarMarcadoresEnMapaApi(ajustar) {
+        if (!grupoMarcadoresMap || !objetoMapaLeaflet) return;
+        grupoMarcadoresMap.clearLayers();
+        const rep = baseRepartidores[usuarioConectado];
+        if (!coordOk(rep)) return;
+        const pill = (bg, t, ex = '') => L.divIcon({ html: `<div style="background:${bg};color:white;padding:3px 7px;border-radius:10px;font-size:10px;font-weight:bold;white-space:nowrap;position:absolute;transform:translate(-50%,-50%);box-shadow:0 2px 5px rgba(0,0,0,0.2);${ex}">${t}</div>`, className: '', iconSize: [0, 0] });
+        const pts = [[rep.lat, rep.lng]];
+        const activos = pedidosActivos(rep);
+        const tiendas = new Set();
+        activos.forEach(p => {
+            const t = baseTiendas[p.tienda];
+            if (coordOk(t) && !tiendas.has(p.tienda)) {
+                tiendas.add(p.tienda); pts.push([t.lat, t.lng]);
+                L.marker([t.lat, t.lng], { icon: pill('#e63946', 'Recoger Taqueria') }).addTo(grupoMarcadoresMap).bindPopup(`<b>Recolección: ${esc(t.id)} - ${esc(t.nombre)}</b><br>${esc(t.colonia)}`);
+            }
+            if (coordOk(p)) { pts.push([p.lat, p.lng]);
+                L.marker([p.lat, p.lng], { icon: pill('#805ad5', 'Cliente Destino') }).addTo(grupoMarcadoresMap).bindPopup(`<b>Entrega: ${esc(p.cliente)}</b><br>Pedido originado en ${esc(p.tienda)}`); }
+        });
+        if (activos.length) { // ruta optimizada: línea guía + ruteo por calles (OSRM) cuando está disponible
+            const ruta = construirRuta(rep, activos).filter(coordOk);
+            L.polyline([[rep.lat, rep.lng], ...ruta.map(q => [q.lat, q.lng])], { color: '#2a9d8f', weight: 3, dashArray: '8 6' }).addTo(grupoMarcadoresMap);
+            if (L.Routing) {
+                const wps = [rep, ...ruta].map(q => L.latLng(q.lat, q.lng));
+                const key = wps.map(w => w.lat.toFixed(5) + ',' + w.lng.toFixed(5)).join('|');
+                if (key !== rutaKey) {
+                    rutaKey = key; quitarRuteo();
+                    try { ctrlRuta = L.Routing.control({ waypoints: wps, addWaypoints: false, draggableWaypoints: false, routeWhileDragging: false, fitSelectedRoutes: false, show: false,
+                        createMarker: () => null, lineOptions: { styles: [{ color: '#2a9d8f', weight: 5, opacity: .9 }] },
+                        router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' }) }).on('routingerror', () => {}).addTo(objetoMapaLeaflet); } catch (_) {}
+                }
+            }
+        } else { quitarRuteo(); rutaKey = ''; }
+        const motoIcon = pill('#2a9d8f', '🏍️ TU MOTO (GPS)', 'padding:5px 9px;border:2px solid white;font-size:11px;');
+        if (!motoMarker) motoMarker = L.marker([rep.lat, rep.lng], { icon: motoIcon, zIndexOffset: 1000 }).addTo(objetoMapaLeaflet);
+        else if (!animando) motoMarker.setLatLng([rep.lat, rep.lng]); // durante la animación no se reposiciona
+        motoMarker.bindPopup(`<b>${esc(rep.nombre)}</b>`);
+        if (ajustar !== false && pts.length > 1) objetoMapaLeaflet.fitBounds(pts, { padding: [40, 40], maxZoom: 16 });
+        else if (ajustar === true) objetoMapaLeaflet.setView([rep.lat, rep.lng], 15);
+    }
+
+    // ACCIONES ADMINISTRADOR
+    async function crearEntidadPorAdmin() {
+        const role = $('adm-new-role').value;
+        const id = $('adm-new-id').value.trim().toUpperCase();
+        const name = $('adm-new-name').value.trim();
+        const address = $('adm-new-address').value.trim();
+        const email = $('adm-new-email').value.trim().toLowerCase();
+        const pass = $('adm-new-pass').value;
+
+        if (!/^[A-Z0-9_-]{2,12}$/.test(id)) return alert("El ID debe tener de 2 a 12 caracteres (letras, números, guion). Ej. T8 o R3.");
+        if (!name) return alert("Introduce el nombre descriptivo.");
+        if (!/^\S+@\S+\.\S+$/.test(email)) return alert("Introduce un correo válido.");
+        if (pass.length < 10) return alert("La contraseña temporal debe tener al menos 10 caracteres.");
+        if (baseTiendas[id] || baseRepartidores[id]) return alert(`El ID ${id} ya existe. Usa uno distinto.`);
+
+        let cred = null;
+        try {
+            cred = await secondaryAuth.createUserWithEmailAndPassword(email, pass); // no afecta la sesión del admin
+            const rnd = () => Math.random() * 0.01 - 0.005;
+            const batch = db.batch();
+            batch.set(db.collection('usuarios').doc(cred.user.uid), { rol: role, refId: id, email });
+            batch.set(db.collection('accesos').doc(id), { email, rol: role });
+            if (role === 'tienda') batch.set(db.collection('tiendas').doc(id), { id, nombre: name, colonia: address || "Av. Acueducto", lat: LAT_BASE + rnd(), lng: LNG_BASE + rnd() });
+            else batch.set(db.collection('repartidores').doc(id), { id, nombre: name, lat: LAT_BASE + rnd(), lng: LNG_BASE + rnd(), pedidosIds: [], carga: 0 });
+            await batch.commit(); // un solo paso atómico: todo o nada
+            await secondaryAuth.signOut();
+            ['id', 'name', 'address', 'email', 'pass'].forEach(k => $('adm-new-' + k).value = "");
+            alert(`Entidad y cuenta creadas. Comparte con ellos:\nUsuario: ${id} (o ${email})\nContraseña temporal: ${pass}`);
+        } catch (e) {
+            if (cred) { try { await cred.user.delete(); } catch (_) {} } // evita cuentas huérfanas
+            try { await secondaryAuth.signOut(); } catch (_) {}
+            alert(e.code === 'auth/email-already-in-use' ? "Ese correo ya está registrado." : "Error al crear la cuenta: " + errTxt(e));
+        }
+    }
+
+    async function darDeBaja(coleccion, id) {
+        const ocupado = coleccion === 'repartidores'
+            ? (baseRepartidores[id]?.carga || 0) > 0
+            : listaPedidos.some(p => p.tienda === id && ['En Ruta', 'Pendiente'].includes(p.estado));
+        if (ocupado) return alert(`No se puede dar de baja a ${id}: tiene pedidos activos en ruta.`);
+        if (!confirm(`¿Dar de baja a ${id}? Perderá el acceso al sistema.`)) return;
+        try {
+            const us = await db.collection('usuarios').where('refId', '==', id).get();
+            const b = db.batch();
+            b.delete(db.collection(coleccion).doc(id));
+            b.delete(db.collection('accesos').doc(id));
+            us.forEach(d => b.delete(d.ref)); // sin perfil, la cuenta ya no puede entrar
+            await b.commit();
+        } catch (e) { alert("Error al dar de baja: " + errTxt(e)); }
+    }
+    const darDeBajaTienda = id => darDeBaja('tiendas', id);
+    const darDeBajaRepartidor = id => darDeBaja('repartidores', id);
+
+    function validarUbicacionSemantica() {
+        const query = document.getElementById('order-address').value.trim().toLowerCase();
+        const output = document.getElementById('val-status-store');
+        output.style.display = 'block';
+
+        const perimetroAcueducto = ['acueducto', 'topo', 'anahuac', 'balcones', 'girasoles', 'praderas', 'lomas', 'escobedo', 'caballero', 'provileon'];
+        const validado = perimetroAcueducto.some(item => query.includes(item));
+
+        if (validado && query.length > 3) {
+            validacionStoreExitosa = true;
+            output.innerText = "Cobertura validada correctamente sobre el eje de la Av. Acueducto.";
+            output.style.color = "#10b981";
+            document.getElementById('btn-submit-order').disabled = false;
+        } else {
+            validacionStoreExitosa = false;
+            output.innerText = "Dirección inválida o fuera del mapa operativo de despacho.";
+            output.style.color = "#ef4444";
+            document.getElementById('btn-submit-order').disabled = true;
+        }
+    }
+
+    // ---------- Funciones puras (se prueban de forma aislada en las pruebas unitarias) ----------
+    function calcularDistanciaKm(a, b) { // fórmula de Haversine
+        const R = 6371, t = x => x * Math.PI / 180, dl = t(b.lat - a.lat), dg = t(b.lng - a.lng);
+        const h = Math.sin(dl / 2) ** 2 + Math.cos(t(a.lat)) * Math.cos(t(b.lat)) * Math.sin(dg / 2) ** 2;
+        return 2 * R * Math.asin(Math.sqrt(h));
+    }
+    const kmDist = calcularDistanciaKm;
+    // Vecino más cercano con restricción de capacidad. Devuelve null si ningún repartidor puede cargar el pedido.
+    function seleccionarRepartidor(repartidores, origen, carga, capacidad = 4) {
+        let mejor = null, min = Infinity;
+        (repartidores || []).forEach(r => {
+            if ((r.carga || 0) + carga > capacidad) return;
+            const d = calcularDistanciaKm(r, origen);
+            if (d < min) { min = d; mejor = r; }
+        });
+        return mejor;
+    }
+
+    // La asignación revisa la capacidad y guarda el pedido con la carga.
+    async function asignarPedido(pedidoRef, base, tienda, carga, existente = false) {
+        const ids = Object.keys(baseRepartidores);
+        return db.runTransaction(async (tx) => {
+            const ps = existente ? await tx.get(pedidoRef) : { exists: false }; // un pedido nuevo no se lee: aún no existe
+            if (ps.exists && ps.data().estado !== 'Pendiente') return { omitido: true };
+            const snaps = await Promise.all(ids.map(id => tx.get(db.collection('repartidores').doc(id))));
+            const lista = snaps.filter(x => x.exists).map(x => ({ id: x.id, ...x.data() }));
+            const sel = seleccionarRepartidor(lista, tienda, carga);
+            if (!sel) {
+                if (!ps.exists) tx.set(pedidoRef, { ...base, estado: 'Pendiente', repartidorAsignado: null });
+                return { pendiente: true };
+            }
+            if (ps.exists) tx.update(pedidoRef, { estado: 'En Ruta', repartidorAsignado: sel.id });
+            else tx.set(pedidoRef, { ...base, estado: 'En Ruta', repartidorAsignado: sel.id });
+            tx.update(db.collection('repartidores').doc(sel.id), { carga: (sel.carga || 0) + carga, pedidosIds: [...(sel.pedidosIds || []), pedidoRef.id] });
+            return { repartidor: sel };
+        });
+    }
+
+    async function crearPedidoDidi(e) {
+        e.preventDefault();
+        if (!validacionStoreExitosa) return;
+        const tiendaId = usuarioConectado, datosTienda = baseTiendas[tiendaId];
+        const carga = parseInt($('order-volume').value), cliente = $('order-customer').value.trim(), direccion = $('order-address').value.trim();
+        if (!datosTienda) return alert("Error de consistencia de la sucursal.");
+        const ref = db.collection('pedidos').doc();
+        const destino = { lat: datosTienda.lat + (Math.random() * 0.008 - 0.004), lng: datosTienda.lng + (Math.random() * 0.008 - 0.004) };
+        const base = { tienda: tiendaId, cliente, direccion, carga, lat: destino.lat, lng: destino.lng, distanciaKm: +calcularDistanciaKm(datosTienda, destino).toFixed(2),
+            zona: datosTienda.colonia || '—', recogido: false, creadoEn: Date.now() };
+        try {
+            const r = await asignarPedido(ref, base, datosTienda, carga);
+            alert(r.pendiente ? "Todos los repartidores tienen la mochila llena. Tu pedido quedó en estatus Pendiente y se asignará en cuanto haya capacidad."
+                              : `Pedido asignado automáticamente por cercanía a: ${r.repartidor.nombre}`);
+            $('form-store').reset(); validacionStoreExitosa = false;
+            $('btn-submit-order').disabled = true; $('val-status-store').style.display = 'none';
+        } catch (err) { alert("Error al crear el pedido: " + errTxt(err)); }
+    }
+
+    // Cuando un repartidor libera capacidad, la sucursal reasigna sus propios pedidos Pendientes.
+    let asignandoPend = false;
+    async function asignarPendientes() {
+        if (rolConectado !== 'tienda' || asignandoPend) return;
+        const pend = listaPedidos.filter(p => p.estado === 'Pendiente'); if (!pend.length) return;
+        asignandoPend = true;
+        try { for (const p of pend) { const t = baseTiendas[p.tienda]; if (t) await asignarPedido(db.collection('pedidos').doc(p.id), p, t, p.carga, true); } }
+        catch (e) { console.error('Pendientes:', e); } finally { asignandoPend = false; }
+    }
+
+    const kmRuta = (inicio, pts) => { let t = 0, pos = inicio; pts.forEach(q => { t += kmDist(pos, q); pos = q; }); return t; };
+    const pedidosActivos = rep => { const ids = rep.pedidosIds || []; return listaPedidos.filter(p => ids.includes(p.id) && p.estado === 'En Ruta'); };
+
+    // Heurística del vecino más cercano: primero todas las recolecciones, después las entregas.
+    function construirRuta(rep, pedidos) {
+        const rec = [], ent = [];
+        pedidos.forEach(p => {
+            const o = baseTiendas[p.tienda] || { lat: LAT_BASE, lng: LNG_BASE };
+            rec.push({ tipo: 'Recoger en Taquería', lugar: p.tienda, nombreT: baseTiendas[p.tienda]?.nombre || p.tienda, pedidoId: p.id, lat: o.lat, lng: o.lng });
+            ent.push({ tipo: 'Entregar a Cliente', lugar: p.cliente, pedidoId: p.id, lat: p.lat, lng: p.lng });
+        });
+        let pos = { lat: rep.lat, lng: rep.lng }; const ruta = [];
+        [rec, ent].forEach(lst => { while (lst.length) { let i = 0, m = Infinity;
+            lst.forEach((q, j) => { const d = kmDist(pos, q); if (d < m) { m = d; i = j; } });
+            const q = lst.splice(i, 1)[0]; ruta.push(q); pos = q; } });
+        return ruta;
+    }
+
+    function pintarItinerario() {
+        const rep = baseRepartidores[usuarioConectado], act = rep ? pedidosActivos(rep) : [];
+        if (!act.length) { $('driver-active').style.display = 'none'; $('driver-empty').style.display = 'block'; return; }
+        $('driver-itinerary-list').innerHTML = construirRuta(rep, act).map((p, i) => {
+            const rec = act.find(x => x.id === p.pedidoId)?.recogido, id = esc(p.pedidoId);
+            const acc = p.tipo.includes('Recoger')
+                ? (rec ? '<span class="badge bg-ok">✔ Recogido</span>' : `<button type="button" class="btn-val-clean" style="padding:2px 12px" onclick="llegarAParada('${id}','recoger')">Marcar llegada de recolección</button>`)
+                : (rec ? `<button type="button" class="btn-val-clean" style="padding:2px 12px" onclick="llegarAParada('${id}','entregar')">Marcar llegada de entrega</button>` : '<span class="badge bg-wait">🔒 Bloqueado hasta recoger</span>');
+            return `<li style="margin-bottom:6px"><b>Paso ${i + 1}:</b> ${esc(p.tipo)} <b><i>${esc(p.tipo.includes('Taquería') ? `${p.lugar} (${p.nombreT})` : p.lugar)}</i></b> ${acc}</li>`;
+        }).join('');
+        $('btn-completar').disabled = !act.every(x => x.recogido);
+    }
+    function calcularRutaOptimaHeuristica() {
+        const rep = baseRepartidores[usuarioConectado];
+        if (!rep || !pedidosActivos(rep).length) return alert("No tienes pedidos activos asignados.");
+        $('driver-empty').style.display = 'none'; $('driver-active').style.display = 'block';
+        pintarItinerario(); dibujarMarcadoresEnMapaApi(true);
+    }
+
+        const isoLocal = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+
+    // Ruta por calles (OSRM) entre dos puntos; si no responde en 2.5 s, línea recta.
+    async function rutaCalles(a, b) {
+        try {
+            const c = new AbortController(), t = setTimeout(() => c.abort(), 2500);
+            const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=full&geometries=geojson`, { signal: c.signal });
+            clearTimeout(t); const g = (await r.json()).routes?.[0]?.geometry?.coordinates;
+            if (g && g.length > 1) return g.map(([x, y]) => [y, x]);
+        } catch (_) {}
+        return [[a.lat, a.lng], [b.lat, b.lng]];
+    }
+    // Desplaza el marcador de la moto a lo largo del trayecto (velocidad suave, 1.8 a 6 s según la distancia).
+    function animarMoto(path) {
+        return new Promise(res => {
+            if (!motoMarker || !objetoMapaLeaflet || path.length < 2) return res();
+            const acum = [0]; for (let i = 1; i < path.length; i++) acum.push(acum[i - 1] + kmDist({ lat: path[i - 1][0], lng: path[i - 1][1] }, { lat: path[i][0], lng: path[i][1] }));
+            const tot = acum[acum.length - 1] || 0.001, dur = Math.min(6000, Math.max(1800, tot * 3000)), t0 = performance.now();
+            const paso = now => {
+                const f = Math.min(1, (now - t0) / dur), d = f * tot; let i = 1; while (i < acum.length - 1 && acum[i] < d) i++;
+                const a = path[i - 1], b = path[i], u = Math.min(1, Math.max(0, (d - acum[i - 1]) / ((acum[i] - acum[i - 1]) || 1e-9)));
+                motoMarker.setLatLng([a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u]);
+                if (f < 1) requestAnimationFrame(paso); else res();
+            };
+            requestAnimationFrame(paso);
+        });
+    }
+    const esperar = async (fn, ms = 3500) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (fn()) return true; await new Promise(r => setTimeout(r, 40)); } return false; };
+
+    // El repartidor llega a una parada: la moto se mueve hasta allí y se guarda su nueva posición.
+    async function llegarAParada(pedidoId, tipo) {
+        if (animando) return;
+        const rep = baseRepartidores[usuarioConectado]; if (!rep) return;
+        const act = pedidosActivos(rep), p = act.find(x => x.id === pedidoId);
+        if (!p) return alert("Ese pedido ya no está activo.");
+        if (tipo === 'entregar' && !p.recogido) return alert("No puedes marcar la entrega: primero debes marcar la recolección de todos los pedidos.");
+        const destino = tipo === 'recoger' ? baseTiendas[p.tienda] : p;
+        if (!coordOk(destino)) return alert("Esta parada no tiene coordenadas válidas.");
+        const ini = { lat: rep.lat, lng: rep.lng }, ultima = tipo === 'entregar' && act.length === 1;
+        animando = true;
+        try {
+            await animarMoto(await rutaCalles(ini, destino));
+            const nuevo = { lat: destino.lat, lng: destino.lng }, batch = db.batch(), pedRef = db.collection('pedidos').doc(pedidoId);
+            const metricas = () => ({ kmBase: +kmRuta(ini, act.flatMap(x => [baseTiendas[x.tienda] || ini, x])).toFixed(2), kmOptimo: +kmRuta(ini, construirRuta(rep, act)).toFixed(2), pedidos: act.length, zona: baseTiendas[act[0].tienda]?.colonia || '—' });
+            if (!rep.itin) nuevo.itin = metricas(); // se guardan al iniciar el itinerario para el reporte de km ahorrados
+            if (tipo === 'recoger') batch.update(pedRef, { recogido: true, recogidoEn: Date.now() });
+            else {
+                batch.update(pedRef, { estado: 'Entregado', entregadoEn: Date.now() });
+                nuevo.carga = Math.max(0, (rep.carga || 0) - (p.carga || 0)); nuevo.pedidosIds = (rep.pedidosIds || []).filter(i => i !== pedidoId);
+                if (ultima) {
+                    const it = rep.itin || nuevo.itin || metricas(), hoy = new Date(), lun = new Date(hoy); lun.setDate(hoy.getDate() - ((hoy.getDay() + 6) % 7));
+                    const dom = new Date(lun); dom.setDate(lun.getDate() + 6);
+                    batch.set(db.collection('reportes').doc(), { repartidorId: usuarioConectado, repartidorNombre: rep.nombre, zona: it.zona, pedidos: it.pedidos,
+                        semanaInicio: isoLocal(lun), semanaFin: isoLocal(dom), fechaMs: Date.now(), kmBase: it.kmBase, kmOptimo: it.kmOptimo, kmAhorrados: +Math.max(0, it.kmBase - it.kmOptimo).toFixed(2) });
+                    nuevo.itin = null;
+                }
+            }
+            batch.update(db.collection('repartidores').doc(usuarioConectado), nuevo);
+            await batch.commit();
+            await esperar(() => tipo === 'recoger' ? listaPedidos.find(x => x.id === pedidoId)?.recogido : (listaPedidos.find(x => x.id === pedidoId)?.estado === 'Entregado' && baseRepartidores[usuarioConectado]?.carga === nuevo.carga));
+            if (ultima) alert("Itinerario completado: estatus de entrega sincronizado con éxito.");
+        } catch (e) { alert("No se pudo registrar la llegada: " + errTxt(e)); }
+        finally { animando = false; dibujarMarcadoresEnMapaApi(false); }
+    }
+
+    // Atajo: completa todas las entregas restantes en el orden de la ruta, con la moto recorriendo cada parada.
+    async function completarEntregasDriver() {
+        const rep = baseRepartidores[usuarioConectado], act = rep ? pedidosActivos(rep) : [];
+        if (!act.length) return alert("No tienes pedidos activos.");
+        if (act.some(p => !p.recogido)) return alert("No puedes marcar la entrega: primero debes marcar la recolección de todos los pedidos.");
+        $('btn-completar').disabled = true;
+        for (const paso of construirRuta(rep, act).filter(x => x.tipo.includes('Entregar'))) await llegarAParada(paso.pedidoId, 'entregar');
+    }
+
+    function actualizarTablasVisuales() {
+        if (rolConectado === 'tienda') {
+            $('lbl-store-title').innerText = baseTiendas[usuarioConectado]?.nombre || usuarioConectado;
+            $('lbl-store-sub').innerText = `ID de Sucursal: ${usuarioConectado} - Zona Base: ${baseTiendas[usuarioConectado]?.colonia || 'No configurada'}`;
+            $('table-store-orders').innerHTML = [...listaPedidos].reverse().map(p =>
+                `<tr><td>#${esc(p.id.slice(0, 6))}</td><td>${esc(p.cliente)}</td><td>${esc(p.direccion)}</td><td>${esc(p.carga)} u</td><td>${esc(baseRepartidores[p.repartidorAsignado]?.nombre || p.repartidorAsignado || '—')}</td><td>${p.distanciaKm != null ? n1(p.distanciaKm) + ' km' : '—'}</td><td><span class="badge ${p.estado === 'En Ruta' ? 'bg-go' : p.estado === 'Pendiente' ? 'bg-wait' : 'bg-ok'}">${esc(p.estado)}</span></td></tr>`).join('')
+                || '<tr><td colspan="7" class="empty">Aún no has despachado órdenes.</td></tr>';
+        }
+        if (rolConectado === 'repartidor') {
+            $('lbl-driver-title').innerText = `Unidad GPS: ${baseRepartidores[usuarioConectado]?.nombre || usuarioConectado}`;
+            $('table-driver-assigned-pool').innerHTML = listaPedidos.filter(p => p.estado === 'En Ruta').map(p =>
+                `<tr><td><b>${esc(p.tienda)} (${esc(baseTiendas[p.tienda]?.nombre || p.tienda)})</b></td><td>${esc(p.cliente)}</td><td>${esc(p.carga)} u</td><td>${p.distanciaKm != null ? n1(p.distanciaKm) + ' km' : '—'}</td><td><span class="badge bg-go">Asignado</span></td></tr>`).join('')
+                || '<tr><td colspan="5" class="empty">Sin pedidos asignados.</td></tr>';
+            $('lbl-driver-capacity').innerText = `${baseRepartidores[usuarioConectado]?.carga || 0}/4`;
+        }
+        if (rolConectado === 'admin') {
+            const fila = (k, d, extra, fn) => `<tr style="cursor:pointer;" onclick="mostrarCorreoEntidad('${esc(k)}')" title="Clic para ver el correo"><td><code>${esc(d.id)}</code></td><td><b>${esc(d.nombre)}</b></td><td>${extra}</td><td><button class="btn-delete" onclick="event.stopPropagation(); ${fn}('${esc(k)}')">Baja</button></td></tr>`;
+            $('table-admin-stores').innerHTML = Object.keys(baseTiendas).map(k => fila(k, baseTiendas[k], esc(baseTiendas[k].colonia), 'darDeBajaTienda')).join('') || '<tr><td colspan="4" class="empty">Sin taquerías.</td></tr>';
+            $('table-admin-drivers').innerHTML = Object.keys(baseRepartidores).map(k => fila(k, baseRepartidores[k], `Mochila: ${baseRepartidores[k].carga || 0}/4 u`, 'darDeBajaRepartidor')).join('') || '<tr><td colspan="4" class="empty">Sin repartidores.</td></tr>';
+        }
+    }
+
+    function mostrarCorreoEntidad(refId) {
+        const n = (baseTiendas[refId] || baseRepartidores[refId] || {}).nombre || refId;
+        const correo = mapaCorreosPorRefId[refId];
+        alert(correo ? `${n} (${refId})\nCorreo de acceso: ${correo}` : `${n} (${refId})\nNo se encontró un correo asociado.`);
+    }
+
+    function logout() { rolSolicitado = null; auth.signOut(); }
+
+    // ================= MÓDULOS DE ADMINISTRACIÓN =================
+    const admState = { rp: 1, ex: 1 };
+    const TITULOS = { alta: 'Módulo de Administración (Alta / Baja de Personal)', reportes: 'Reportes Históricos y KPIs', prediccion: 'Predicción de Demanda', expansion: 'Expansión del Polígono de Cobertura' };
+    function admVista(v) {
+        document.querySelectorAll('.adm-item').forEach(b => b.classList.toggle('active', b.dataset.v === v));
+        document.querySelectorAll('.adm-view').forEach(x => x.classList.toggle('active', x.id === 'adm-v-' + v));
+        $('adm-titulo').innerText = TITULOS[v]; admState.vista = v; renderAdmin();
+    }
+    function renderAdmin() {
+        const v = admState.vista;
+        if (v === 'reportes') renderReportes(true); else if (v === 'prediccion') renderPrediccion(true); else if (v === 'expansion') renderExpansion(true);
+    }
+    const fmtF = iso => iso ? iso.split('-').reverse().join('/') : '—';
+    const n1 = x => (+x).toLocaleString('es-MX', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    function llenarSelect(id, todos, opciones) {
+        const el = $(id), actual = el.value;
+        el.innerHTML = `<option value="">${todos}</option>` + opciones.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join('');
+        if ([...el.options].some(o => o.value === actual)) el.value = actual;
+    }
+    const zonasConocidas = () => [...new Set([...Object.values(baseTiendas).map(t => t.colonia), ...listaReportes.map(r => r.zona), ...listaExpansiones.map(e => e.zona)].filter(Boolean))].sort();
+    function paginar(arr, pag, por, pagerId, fn) {
+        const tot = Math.max(1, Math.ceil(arr.length / por)); pag = Math.min(pag, tot);
+        let h = `<span>Mostrando ${arr.length ? (pag - 1) * por + 1 : 0} a ${Math.min(pag * por, arr.length)} de ${arr.length} registros</span><span>`;
+        h += `<button ${pag === 1 ? 'disabled' : ''} onclick="${fn}(${pag - 1})">Anterior</button> `;
+        for (let i = 1; i <= tot; i++) h += `<button class="${i === pag ? 'on' : ''}" onclick="${fn}(${i})">${i}</button> `;
+        $(pagerId).innerHTML = h + `<button ${pag === tot ? 'disabled' : ''} onclick="${fn}(${pag + 1})">Siguiente</button></span>`;
+        return arr.slice((pag - 1) * por, pag * por);
+    }
+    const kpiHtml = (arr) => arr.map(([t, v, sub]) => `<div class="kpi"><small>${t}</small><b>${v}</b><span>${sub}</span></div>`).join('');
+    function descargarArchivo(nombre, contenido, tipo) {
+        const url = URL.createObjectURL(new Blob([contenido], { type: tipo }));
+        const a = document.createElement('a'); a.href = url; a.download = nombre;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
+    }
+    function descargarCSV(nombre, filas) {
+        const csv = '\ufeff' + filas.map(f => f.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(',')).join('\r\n');
+        descargarArchivo(nombre, csv, 'text/csv;charset=utf-8');
+    }
+    async function verificarAdministrador() {
+        const user = auth.currentUser;
+        if (!user || rolConectado !== 'admin') throw new Error('Inicia sesión como Administrador para importar o exportar datos.');
+        const snap = await db.collection('usuarios').doc(user.uid).get({ source: 'server' });
+        if (!auth.currentUser || auth.currentUser.uid !== user.uid || !snap.exists || snap.data().rol !== 'admin')
+            throw new Error('La cuenta no tiene el rol admin en usuarios/' + user.uid + '.');
+        return user.uid;
+    }
+    async function actualizarDatosParaExportar(colecciones) {
+        const uid = await verificarAdministrador();
+        const snapshots = await Promise.all(colecciones.map(async c => {
+            try { return [c, await db.collection(c).get({ source: 'server' })]; }
+            catch (e) { avisarPermiso(c, e); throw e; }
+        }));
+        if (!auth.currentUser || auth.currentUser.uid !== uid || rolConectado !== 'admin') throw new Error('La sesión cambió. Inicia sesión de nuevo.');
+        const datos = {};
+        snapshots.forEach(([c, snap]) => { datos[c] = []; snap.forEach(d => datos[c].push({ ...d.data(), id: d.id })); });
+        if (datos.reportes) listaReportes = datos.reportes;
+        if (datos.historialDemanda) listaHistorial = datos.historialDemanda;
+        if (datos.colonias) listaExpansiones = datos.colonias;
+        return datos;
+    }
+    async function exportarHistorico() {
+        try {
+            const datos = await actualizarDatosParaExportar(['reportes', 'historialDemanda', 'colonias']);
+            descargarArchivo('historico_reparto.json', JSON.stringify(datos, null, 2), 'application/json;charset=utf-8');
+        } catch (e) { alert('No se pudo exportar el histórico: ' + errTxt(e)); }
+    }
+    function abrirModal(html) { $('modal-body').innerHTML = html + '<button class="btn-blue" style="margin-top:14px;width:100%" onclick="$(\'modal\').classList.remove(\'on\')">Cerrar</button>'; $('modal').classList.add('on'); }
+
+    // ---------- 1) Reportes históricos y KPIs ----------
+    let rpFilas = [];
+    function rpLimpiar() { ['rp-f1', 'rp-f2', 'rp-rep', 'rp-zona'].forEach(i => $(i).value = ''); admState.rp = 1; renderReportes(); }
+    function rpPagina(p) { admState.rp = p; renderReportes(true); }
+    function renderReportes(soloDatos) {
+        llenarSelect('rp-rep', 'Todos los repartidores', Object.entries(baseRepartidores).map(([k, r]) => [k, r.nombre]));
+        llenarSelect('rp-zona', 'Todas las zonas', zonasConocidas().map(z => [z, z]));
+        const f1 = $('rp-f1').value ? new Date($('rp-f1').value + 'T00:00:00').getTime() : -Infinity;
+        const f2 = $('rp-f2').value ? new Date($('rp-f2').value + 'T23:59:59').getTime() : Infinity;
+        const rep = $('rp-rep').value, zona = $('rp-zona').value;
+        const mapa = {};
+        listaReportes.filter(r => r.fechaMs >= f1 && r.fechaMs <= f2 && (!rep || r.repartidorId === rep) && (!zona || r.zona === zona)).forEach(r => {
+            const k = [r.semanaInicio, r.repartidorId, r.zona].join('|');
+            const g = mapa[k] = mapa[k] || { ini: r.semanaInicio, fin: r.semanaFin, rep: r.repartidorNombre, repId: r.repartidorId, zona: r.zona, km: 0, base: 0, ped: 0 };
+            g.km += r.kmAhorrados || 0; g.base += r.kmBase || 0; g.ped += r.pedidos || 0;
+        });
+        rpFilas = Object.values(mapa).sort((a, b) => b.ini.localeCompare(a.ini) || a.rep.localeCompare(b.rep));
+        const tot = rpFilas.reduce((s, g) => s + g.km, 0), reps = new Set(rpFilas.map(g => g.repId)).size, sem = new Set(rpFilas.map(g => g.ini)).size;
+        $('rp-kpis').innerHTML = kpiHtml([['Kilómetros ahorrados totales', n1(tot) + ' km', 'En el periodo seleccionado'], ['Promedio por repartidor', n1(reps ? tot / reps : 0) + ' km', 'En el periodo seleccionado'], ['Semanas analizadas', sem, 'En el periodo seleccionado'], ['Pedidos entregados', rpFilas.reduce((t, g) => t + g.ped, 0), 'En el periodo seleccionado'], ['Repartidores activos', Object.keys(baseRepartidores).length, 'Registrados en el sistema']]);
+        const pag = paginar(rpFilas, admState.rp, 5, 'rp-pager', 'rpPagina');
+        $('rp-body').innerHTML = pag.map((g, i) => `<tr><td>${fmtF(g.ini)}</td><td>${fmtF(g.fin)}</td><td>${esc(g.rep)}</td><td>${esc(g.zona)}</td><td>${n1(g.km)}</td><td>${g.ped}</td><td>${n1(g.base ? g.km / g.base * 100 : 0)}%</td><td><button class="btn-eye" onclick="rpDetalle(${(admState.rp - 1) * 5 + i})">👁</button></td></tr>`).join('')
+            || '<tr><td colspan="8" class="empty">Aún no hay reportes. Se generan cuando un repartidor marca su itinerario como entregado.</td></tr>';
+    }
+    function rpDetalle(i) {
+        const g = rpFilas[i]; if (!g) return;
+        abrirModal(`<h2>Detalle del reporte</h2><p><b>Repartidor:</b> ${esc(g.rep)} (${esc(g.repId)})</p><p><b>Zona:</b> ${esc(g.zona)}</p><p><b>Semana:</b> ${fmtF(g.ini)} – ${fmtF(g.fin)}</p><p><b>Pedidos entregados:</b> ${g.ped}</p><p><b>Km sin optimizar:</b> ${n1(g.base)} km</p><p><b>Km ahorrados:</b> ${n1(g.km)} km (${n1(g.base ? g.km / g.base * 100 : 0)}%)</p>`);
+    }
+    async function rpExportar() {
+        try { await actualizarDatosParaExportar(['reportes']); renderReportes(true); }
+        catch (e) { return alert('No se pudo exportar: ' + errTxt(e)); }
+        if (!rpFilas.length) return alert("No hay datos para exportar.");
+        descargarCSV('reportes_km_ahorrados.csv', [['Semana inicio', 'Semana fin', 'Repartidor', 'Zona', 'Km ahorrados', 'Pedidos', '% Ahorro'], ...rpFilas.map(g => [g.ini, g.fin, g.rep, g.zona, g.km.toFixed(2), g.ped, (g.base ? g.km / g.base * 100 : 0).toFixed(1)])]);
+    }
+
+    // ---------- 2) Predicción de demanda ----------
+    // Promedio de pedidos por hora (según el historial) para el/los día(s) elegidos,
+    // ajustado por la tendencia de las últimas 2 semanas frente al periodo anterior.
+    let prDatos = null;
+    function prLimpiar() { ['pr-fecha', 'pr-zona', 'pr-dia'].forEach(i => $(i).value = ''); $('pr-hor').value = '0-24'; renderPrediccion(); }
+    function renderPrediccion(soloDatos) {
+        llenarSelect('pr-zona', 'Todas las zonas', zonasConocidas().map(z => [z, z]));
+        const hist = listaPedidos.filter(p => p.creadoEn && p.creadoEn.toDate).map(p => ({ d: p.creadoEn.toDate(), z: p.zona || baseTiendas[p.tienda]?.colonia || '—', c: 1 }))
+            .concat(listaHistorial.map(h => ({ d: new Date(h.fechaMs), z: h.zona || '—', c: h.cantidad || 1 })));
+        const sc = a => a.reduce((t, x) => t + x.c, 0);
+        const zona = $('pr-zona').value, fecha = $('pr-fecha').value;
+        let dia = $('pr-dia').value !== '' ? +$('pr-dia').value : (fecha ? new Date(fecha + 'T12:00:00').getDay() : null);
+        const [h1, h2] = $('pr-hor').value.split('-').map(Number);
+        if (!hist.length) {
+            prDatos = null;
+            $('pr-kpis').innerHTML = kpiHtml([['Pedidos estimados totales', '—', 'Sin historial'], ['Hora pico estimada', '—', ''], ['Zona con mayor demanda', '—', ''], ['Variación vs histórico', '—', '']]);
+            $('pr-chart').innerHTML = '<p class="empty">Aún no hay historial de pedidos. La predicción se activa conforme las taquerías registren órdenes.</p>';
+            $('pr-zonas').innerHTML = '<tr><td colspan="3" class="empty">Sin datos</td></tr>'; return;
+        }
+        const hoy = new Date(), DIA = 864e5, ini = new Date(Math.min(...hist.map(x => x.d)));
+        let n = 0; for (let d = new Date(ini.getFullYear(), ini.getMonth(), ini.getDate()); d <= hoy; d = new Date(d.getTime() + DIA)) if (dia === null || d.getDay() === dia) n++;
+        n = Math.max(n, 1);
+        const sel = hist.filter(x => dia === null || x.d.getDay() === dia);
+        const rec = sc(sel.filter(x => hoy - x.d <= 14 * DIA)) / 14;
+        const diasPrev = Math.max(1, (hoy - 14 * DIA - ini) / DIA), prev = sc(sel.filter(x => hoy - x.d > 14 * DIA)) / diasPrev;
+        const variacion = prev > 0 ? Math.max(-0.5, Math.min(0.5, (rec - prev) / prev)) : 0;
+        const horas = Array(24).fill(0);
+        sel.filter(x => !zona || x.z === zona).forEach(x => horas[x.d.getHours()] += x.c);
+        const pred = horas.map(c => c / n * (1 + variacion));
+        const rango = pred.map((v, h) => h >= h1 && h < h2 ? v : 0);
+        const total = rango.reduce((a, b) => a + b, 0);
+        const pico = rango.indexOf(Math.max(...rango));
+        const zc = {}; sel.filter(x => x.d.getHours() >= h1 && x.d.getHours() < h2).forEach(x => zc[x.z] = (zc[x.z] || 0) + x.c);
+        const zs = Object.entries(zc).map(([z, c]) => [z, c / n * (1 + variacion)]).sort((a, b) => b[1] - a[1]), tz = zs.reduce((a, b) => a + b[1], 0);
+        prDatos = { pred, zs, total };
+        $('pr-kpis').innerHTML = kpiHtml([['Pedidos estimados totales', Math.round(total), 'En el periodo seleccionado'], ['Hora pico estimada', total ? `${String(pico).padStart(2, '0')}:00 - ${String(pico + 1).padStart(2, '0')}:00` : '—', 'Mayor demanda esperada'], ['Zona con mayor demanda', esc(zs[0]?.[0] || '—'), 'En el periodo seleccionado'], ['Variación vs histórico', (variacion >= 0 ? '+' : '') + n1(variacion * 100) + '%', 'Últimas 2 semanas vs. periodo previo']]);
+        $('pr-zonas').innerHTML = zs.slice(0, 5).map(([z, c]) => `<tr><td>${esc(z)}</td><td>${Math.round(c)}</td><td>${n1(tz ? c / tz * 100 : 0)}% <div class="bar"><i style="width:${tz ? c / tz * 100 : 0}%"></i></div></td></tr>`).join('') || '<tr><td colspan="3" class="empty">Sin datos</td></tr>';
+        const W = 560, H = 230, mx = Math.max(1, ...pred) * 1.15, X = h => 40 + h * (W - 55) / 23, Y = v => H - 30 - v / mx * (H - 50);
+        let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">`;
+        for (let i = 0; i <= 4; i++) { const v = mx * i / 4; svg += `<line x1="40" x2="${W - 15}" y1="${Y(v)}" y2="${Y(v)}" stroke="#e2e8f0"/><text x="34" y="${Y(v) + 4}" font-size="10" text-anchor="end" fill="#64748b">${Math.round(v)}</text>`; }
+        for (let h = 0; h < 24; h += 2) svg += `<text x="${X(h)}" y="${H - 10}" font-size="10" text-anchor="middle" fill="#64748b">${String(h).padStart(2, '0')}:00</text>`;
+        svg += `<path d="M${pred.map((v, h) => X(h) + ',' + Y(v)).join(' L')}" fill="none" stroke="#2563eb" stroke-width="2.5"/>` + pred.map((v, h) => `<circle cx="${X(h)}" cy="${Y(v)}" r="3" fill="#2563eb"><title>${String(h).padStart(2, '0')}:00 → ${v.toFixed(1)} pedidos</title></circle>`).join('') + '</svg>';
+        $('pr-chart').innerHTML = svg;
+    }
+    async function prExportar() {
+        try { await actualizarDatosParaExportar(['historialDemanda']); renderPrediccion(true); }
+        catch (e) { return alert('No se pudo exportar: ' + errTxt(e)); }
+        if (!prDatos) return alert("No hay predicción para exportar.");
+        descargarCSV('prediccion_demanda.csv', [['Hora', 'Pedidos estimados'], ...prDatos.pred.map((v, h) => [String(h).padStart(2, '0') + ':00', v.toFixed(2)])]);
+    }
+
+    // ---------- 3) Expansión del polígono de cobertura (colección 'colonias') ----------
+    const EST_CLASE = { 'Cobertura actual': 'Actual', 'Aprobada': 'Aprobada', 'En evaluación': 'Evaluacion', 'No aprobada': 'NoAprobada' };
+    const EST_COLOR = { 'Cobertura actual': '#2563eb', 'Aprobada': '#16a34a', 'En evaluación': '#f59e0b', 'No aprobada': '#dc2626' };
+    const exDibujo = { on: false, pts: [], capa: null };
+    let exFiltrada = [];
+    function exLimpiar() { ['ex-q', 'ex-zona', 'ex-tipo', 'ex-est'].forEach(i => $(i).value = ''); admState.ex = 1; renderExpansion(); }
+    function exPagina(p) { admState.ex = p; renderExpansion(true); }
+    function casco(pts) {
+        pts = [...pts].sort((a, b) => a[1] - b[1] || a[0] - b[0]); if (pts.length < 3) return pts;
+        const cr = (o, a, b) => (a[1] - o[1]) * (b[0] - o[0]) - (a[0] - o[0]) * (b[1] - o[1]), lo = [], up = [];
+        pts.forEach(p => { while (lo.length > 1 && cr(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop(); lo.push(p); });
+        [...pts].reverse().forEach(p => { while (up.length > 1 && cr(up[up.length - 2], up[up.length - 1], p) <= 0) up.pop(); up.push(p); });
+        return lo.slice(0, -1).concat(up.slice(0, -1));
+    }
+    function exBoceto() {
+        if (!mapaExp) return;
+        if (exDibujo.capa) mapaExp.removeLayer(exDibujo.capa);
+        const p = exDibujo.pts;
+        exDibujo.capa = (p.length > 2 ? L.polygon(p, { color: '#7c3aed', dashArray: '5', fillOpacity: .15 }) : L.polyline(p, { color: '#7c3aed', dashArray: '5' })).addTo(mapaExp);
+        $('ex-pts').innerText = `${p.length} puntos (mínimo 3)`;
+    }
+    function exIniciarDibujo() {
+        if (!mapaExp) return alert("El mapa aún no está listo.");
+        exCancelar(); exDibujo.on = true; mapaExp.getContainer().style.cursor = 'crosshair'; mapaExp.getContainer().classList.add('drawing');
+        $('ex-pts').innerText = 'Haz clic en el mapa para marcar los vértices';
+    }
+    function exDeshacer() { exDibujo.pts.pop(); exBoceto(); }
+    function exCancelar() {
+        exDibujo.on = false; exDibujo.pts = [];
+        if (mapaExp) { mapaExp.getContainer().style.cursor = ''; mapaExp.getContainer().classList.remove('drawing'); if (exDibujo.capa) mapaExp.removeLayer(exDibujo.capa); }
+        exDibujo.capa = null; $('ex-pts').innerText = '0 puntos (mínimo 3)';
+    }
+    async function exGuardar() {
+        const nombre = $('ex-new-name').value.trim();
+        if (!nombre) return alert("Escribe el nombre de la colonia o avenida.");
+        if (exDibujo.pts.length < 3) return alert("Dibuja el perímetro en el mapa con al menos 3 puntos.");
+        try {
+            await db.collection('colonias').add({ nombre, zona: $('ex-new-zona').value.trim() || '—', tipo: $('ex-new-tipo').value, estatus: $('ex-new-est').value,
+                fecha: isoLocal(new Date()), poly: exDibujo.pts.map(([lat, lng]) => ({ lat, lng })) });
+            $('ex-new-name').value = ''; $('ex-new-zona').value = ''; exCancelar();
+        } catch (e) { alert("No se pudo guardar la zona: " + errTxt(e)); }
+    }
+    const exEstatus = (id, v) => db.collection('colonias').doc(id).update({ estatus: v }).catch(e => alert(errTxt(e)));
+    const exEliminar = id => confirm("¿Eliminar esta zona?") && db.collection('colonias').doc(id).delete().catch(e => alert(errTxt(e)));
+    function exVer(id) {
+        const x = listaExpansiones.find(e => e.id === id); if (!x || !mapaExp) return;
+        mapaExp.fitBounds((x.poly || []).map(q => [q.lat, q.lng]), { padding: [30, 30] });
+    }
+    async function exExportar() {
+        try { await actualizarDatosParaExportar(['colonias']); renderExpansion(true); }
+        catch (e) { return alert('No se pudo exportar: ' + errTxt(e)); }
+        if (!exFiltrada.length) return alert("No hay datos para exportar.");
+        descargarCSV('expansion_cobertura.csv', [['Colonia / Avenida', 'Zona', 'Tipo', 'Estatus', 'Fecha'], ...exFiltrada.map(x => [x.nombre, x.zona, x.tipo, x.estatus, x.fecha])]);
+    }
+    async function renderExpansion(soloDatos) {
+        llenarSelect('ex-zona', 'Todas las zonas', zonasConocidas().map(z => [z, z]));
+        const q = $('ex-q').value.trim().toLowerCase(), z = $('ex-zona').value, t = $('ex-tipo').value, e = $('ex-est').value;
+        exFiltrada = listaExpansiones.filter(x => (!q || (x.nombre || '').toLowerCase().includes(q)) && (!z || x.zona === z) && (!t || x.tipo === t) && (!e || x.estatus === e))
+            .sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
+        const ev = listaExpansiones.filter(x => x.estatus !== 'Cobertura actual'), T = ev.length, c = k => ev.filter(x => x.estatus === k).length, pc = k => T ? n1(c(k) / T * 100) : '0.0';
+        $('ex-kpis').innerHTML = kpiHtml([['Colonias evaluadas', T, 'En total'], ['Colonias aprobadas', c('Aprobada'), pc('Aprobada') + '% del total'], ['En evaluación', c('En evaluación'), pc('En evaluación') + '% del total'], ['No aprobadas', c('No aprobada'), pc('No aprobada') + '% del total']]);
+        $('ex-body').innerHTML = paginar(exFiltrada, admState.ex, 5, 'ex-pager', 'exPagina').map(x =>
+            `<tr><td><b>${esc(x.nombre)}</b></td><td>${esc(x.zona)}</td><td>${esc(x.tipo)}</td><td><select class="est est-${EST_CLASE[x.estatus] || 'Evaluacion'}" style="width:auto;padding:3px;border:none" onchange="exEstatus('${x.id}', this.value)">${Object.keys(EST_CLASE).map(k => `<option ${k === x.estatus ? 'selected' : ''}>${k}</option>`).join('')}</select></td><td>${fmtF(x.fecha)}</td><td style="white-space:nowrap"><button class="btn-eye" onclick="exVer('${x.id}')" title="Ver en el mapa">👁</button> <button class="btn-delete" onclick="exEliminar('${x.id}')">✕</button></td></tr>`).join('')
+            || '<tr><td colspan="6" class="empty">Sin colonias o avenidas registradas.</td></tr>';
+        const listo = await window.mapaDisponible;
+        if (rolConectado !== 'admin' || admState.vista !== 'expansion') return;
+        if (!listo || typeof L === 'undefined') { $('ex-map').innerHTML = '<p class="empty">No se pudo cargar el mapa. Comprueba tu conexión y recarga la página.</p>'; return; }
+        if (!mapaExp) $('ex-map').innerHTML = '';
+        if (!mapaExp || mapaExp._container !== $('ex-map')) {
+            if (mapaExp) mapaExp.remove();
+            mapaExp = L.map('ex-map').setView([LAT_BASE, LNG_BASE], 13); capaBase(mapaExp); mapaExp._capas = L.layerGroup().addTo(mapaExp);
+            mapaExp.on('click', ev => { if (exDibujo.on) { exDibujo.pts.push([ev.latlng.lat, ev.latlng.lng]); exBoceto(); } });
+        }
+        setTimeout(() => {
+            if (!mapaExp || rolConectado !== 'admin' || admState.vista !== 'expansion') return;
+            mapaExp.invalidateSize(); mapaExp._capas.clearLayers(); const all = [];
+            const hayActual = listaExpansiones.some(x => x.estatus === 'Cobertura actual');
+            if (!hayActual) { const cob = casco(Object.values(baseTiendas).filter(coordOk).map(x => [x.lat, x.lng])); // cobertura estimada con las taquerías
+                if (cob.length >= 3) { L.polygon(cob, { color: '#2563eb', fillOpacity: .2 }).addTo(mapaExp._capas).bindPopup('Cobertura actual (estimada)'); all.push(...cob); } }
+            Object.values(baseTiendas).filter(coordOk).forEach(x => L.circleMarker([x.lat, x.lng], { radius: 5, color: '#2563eb', fillOpacity: 1 }).addTo(mapaExp._capas).bindPopup(esc(x.nombre)));
+            exFiltrada.forEach(x => { const pl = (x.poly || []).map(q => [q.lat, q.lng]); if (pl.length > 2) { L.polygon(pl, { color: EST_COLOR[x.estatus] || '#f59e0b', fillOpacity: .25 }).addTo(mapaExp._capas).bindPopup(`<b>${esc(x.nombre)}</b><br>${esc(x.estatus)}`); all.push(...pl); } });
+            if (all.length && !mapaExp._fit) { mapaExp.fitBounds(all, { padding: [20, 20] }); mapaExp._fit = true; }
+        }, 80);
+    }
+
+    // ---------- Datos de demostración (marcados con demo:true) ----------
+    async function commitEnLotes(ops) {
+        const uid = await verificarAdministrador(); let guardados = 0;
+        for (let i = 0; i < ops.length; i += 200) {
+            if (!auth.currentUser || auth.currentUser.uid !== uid || rolConectado !== 'admin') throw new Error('La sesión cambió. Registros procesados: ' + guardados + '.');
+            const b = db.batch(); ops.slice(i, i + 200).forEach(([r, d]) => d === null ? b.delete(r) : b.set(r, d));
+            try { await b.commit(); guardados += Math.min(200, ops.length - i); }
+            catch (e) { throw new Error(errTxt(e) + ' Registros procesados: ' + guardados + ' de ' + ops.length + '.'); }
+        }
+    }
+    async function cargarDemo() {
+        if (!confirm("¿Cargar datos de demostración?")) return;
+        const rnd = (a, b) => a + Math.random() * (b - a), hoy = new Date(), ops = [];
+        const zonas = [...new Set([...zonasConocidas(), 'Hacienda del Topo', 'Balcones de Anáhuac', 'Provileón', 'Las Lomas'])].slice(0, 6);
+        const reps = Object.values(baseRepartidores).length ? Object.values(baseRepartidores) : [{ id: 'DEMO', nombre: 'Repartidor Demo' }];
+        for (let w = 0; w < 8; w++) {
+            const lun = new Date(hoy); lun.setDate(hoy.getDate() - ((hoy.getDay() + 6) % 7) - 7 * w); const dom = new Date(lun); dom.setDate(lun.getDate() + 6);
+            reps.forEach(r => { const base = rnd(60, 140), ah = base * rnd(0.12, 0.21);
+                ops.push([db.collection('reportes').doc(), { demo: true, repartidorId: r.id, repartidorNombre: r.nombre, zona: zonas[Math.floor(Math.random() * zonas.length)], pedidos: Math.round(rnd(8, 40)),
+                    semanaInicio: isoLocal(lun), semanaFin: isoLocal(dom), fechaMs: lun.getTime() + 3 * 864e5, kmBase: +base.toFixed(2), kmOptimo: +(base - ah).toFixed(2), kmAhorrados: +ah.toFixed(2) }]); });
+        }
+        const perfil = [0, 0, 0, 0, 0, 1, 2, 3, 4, 6, 9, 14, 18, 12, 8, 7, 9, 14, 17, 12, 7, 4, 2, 1];
+        for (let d = 1; d <= 56; d++) { const f = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - d), mult = [0, 5, 6].includes(f.getDay()) ? 1.4 : 1;
+            for (let h = 6; h < 24; h++) { const zi = Math.floor(Math.random() * zonas.length), cant = Math.round(perfil[h] * mult * rnd(0.6, 1.3) * (zi < 2 ? 1.4 : 0.8));
+                if (cant > 0) ops.push([db.collection('historialDemanda').doc(), { demo: true, fechaMs: new Date(f.getFullYear(), f.getMonth(), f.getDate(), h, 30).getTime(), zona: zonas[zi], cantidad: cant }]); } }
+        [['Jardines de la Florida', 'Colonia', 'Aprobada'], ['Av. Universidad', 'Avenida', 'En evaluación'], ['Residencial del Valle', 'Colonia', 'Aprobada'], ['Av. Tecnológico', 'Avenida', 'En evaluación'], ['Santa Mónica', 'Colonia', 'No aprobada']].forEach(([n, tp, es], i) => {
+            const cx = LAT_BASE + rnd(-0.03, 0.03), cy = LNG_BASE + rnd(-0.03, 0.03), r = rnd(0.004, 0.007);
+            ops.push([db.collection('colonias').doc(), { demo: true, nombre: n, zona: zonas[i % zonas.length], tipo: tp, estatus: es, fecha: isoLocal(new Date(hoy - i * 864e5 * 3)),
+                poly: [0, 1, 2, 3, 4].map(k => ({ lat: cx + r * Math.sin(k * 1.2566), lng: cy + r * Math.cos(k * 1.2566) })) }]); });
+        try { await commitEnLotes(ops); alert("Datos de demostración cargados."); } catch (e) { alert("Error al cargar la demostración: " + errTxt(e)); }
+    }
+    async function borrarDemo() {
+        if (!confirm("¿Eliminar todos los datos de demostración?")) return;
+        try { const ops = [];
+            for (const c of ['reportes', 'historialDemanda', 'colonias']) (await db.collection(c).where('demo', '==', true).get()).forEach(d => ops.push([d.ref, null]));
+            await commitEnLotes(ops); alert(`Se eliminaron ${ops.length} registros de demostración.`);
+        } catch (e) { alert("Error al eliminar: " + errTxt(e)); }
+    }
+
+    // ---------- Importar archivos históricos (.json con reportes, historialDemanda y colonias) ----------
+    async function importarHistorico(inp) {
+        const f = inp.files[0]; if (!f || inp.disabled) return;
+        inp.disabled = true;
+        try {
+            await verificarAdministrador();
+            if (f.size > 8 * 1024 * 1024) throw new Error("El archivo supera 8 MB.");
+            let data; try { data = JSON.parse((await f.text()).replace(/^\uFEFF/, '')); } catch (_) { throw new Error("El archivo no es un JSON válido."); }
+            if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('El JSON debe contener un objeto con reportes, historialDemanda o colonias.');
+            const num = v => typeof v === 'number' && Number.isFinite(v), str = v => typeof v === 'string' && v.trim() !== '';
+            const valida = {
+                reportes: d => str(d.repartidorId) && str(d.repartidorNombre) && str(d.zona) && num(d.fechaMs) && num(d.kmAhorrados) && num(d.kmBase) && num(d.pedidos) && str(d.semanaInicio) && str(d.semanaFin),
+                historialDemanda: d => num(d.fechaMs) && str(d.zona) && num(d.cantidad) && d.cantidad > 0,
+                colonias: d => str(d.nombre) && str(d.zona) && ['Colonia', 'Avenida'].includes(d.tipo) && Object.prototype.hasOwnProperty.call(EST_CLASE, d.estatus) && Array.isArray(d.poly) && d.poly.length >= 3 && d.poly.every(q => q && num(q.lat) && Math.abs(q.lat) <= 90 && num(q.lng) && Math.abs(q.lng) <= 180)
+            };
+            const ops = []; let omitidos = 0; const por = {};
+            Object.keys(valida).forEach(c => (Array.isArray(data[c]) ? data[c] : []).forEach(d => {
+                if (d && typeof d === 'object' && valida[c](d)) { ops.push([db.collection(c).doc(), { ...d, demo: true }]); por[c] = (por[c] || 0) + 1; } else omitidos++; }));
+            if (!ops.length) throw new Error("El archivo no contiene registros válidos (se esperan las claves reportes, historialDemanda o colonias).");
+            const det = Object.entries(por).map(([c, n]) => `${c}: ${n}`).join(', ');
+            if (!confirm(`Se importarán ${ops.length} registros (${det})${omitidos ? ` y se omitirán ${omitidos} inválidos` : ''}. ¿Continuar?`)) return;
+            await commitEnLotes(ops);
+            alert(`Importación completa: ${ops.length} registros (${det})${omitidos ? `; omitidos: ${omitidos}` : ''}.`);
+        } catch (e) { alert("No se pudo importar: " + errTxt(e)); }
+        finally { inp.value = ''; inp.disabled = false; }
+    }
+</script>
+</body>
+</html>

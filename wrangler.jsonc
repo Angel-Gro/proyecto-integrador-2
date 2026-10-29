@@ -1,0 +1,13 @@
+{
+  "name": "repartidores-demo",
+  "main": "distribucion/web/trabajador.mjs",
+  "compatibility_date": "2026-10-28",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "repartidores_demo",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migraciones"
+    }
+  ]
+}

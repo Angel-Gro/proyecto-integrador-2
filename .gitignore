@@ -1,0 +1,12 @@
+node_modules/
+distribucion/*
+!distribucion/Repartidores-local.zip
+.wrangler/
+.dev.vars*
+datos/
+lanzador/bin/
+lanzador/obj/
+.vs/
+*.user
+*.suo
+*.pdb

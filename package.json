@@ -1,0 +1,15 @@
+{
+  "name": "repartidores-local",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "compilar:web": "node herramientas/compilar-web.mjs"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "wrangler": "^4.86.0"
+  }
+}
