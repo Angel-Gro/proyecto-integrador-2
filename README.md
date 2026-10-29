@@ -16,9 +16,11 @@ Solo necesitas descargar ese ejecutable en Windows de 64 bits. Incluye los compo
 
 La aplicación crea su base vacía automáticamente. Guarda las cuentas y los registros en `%LOCALAPPDATA%\Repartidores\datos\repartidores.sqlite`. Cada computadora conserva sus propios datos.
 
-Para respaldarlos, cierra la aplicación, pulsa `Windows + R`, escribe `%LOCALAPPDATA%\Repartidores\datos` y copia el archivo `repartidores.sqlite`.
+Para respaldarlos, cierra todas las ventanas de la aplicación, pulsa `Windows + R`, escribe `%LOCALAPPDATA%\Repartidores` y copia la carpeta `datos` completa, con todos sus archivos.
 
 El repositorio no incluye datos ni contraseñas. Los registros antiguos de Firebase todavía no se han importado.
+
+El motivo del cambio, la estructura y el funcionamiento de la base se explican en [Base de datos: cambio de Firebase a SQLite](base_datos/migracion.md).
 
 ## Contenido del repositorio
 
