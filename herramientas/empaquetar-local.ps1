@@ -12,7 +12,7 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $node)) { throw 'No se 
 Copy-Item -LiteralPath $node -Destination (Join-Path $salida 'runtime\node.exe')
 npm ci --omit=dev --prefix $salida
 if ($LASTEXITCODE -ne 0) { throw 'No se pudieron preparar las dependencias locales.' }
-Copy-Item -LiteralPath (Join-Path $raiz 'INSTRUCCIONES.md') -Destination $salida
+Copy-Item -LiteralPath (Join-Path $raiz 'README.md') -Destination (Join-Path $salida 'INSTRUCCIONES.md')
 $archivo = Join-Path $raiz 'distribucion\Repartidores-local.zip'
 Compress-Archive -Path (Join-Path $salida '*') -DestinationPath $archivo -CompressionLevel Optimal
 Write-Output $archivo

@@ -131,7 +131,6 @@
         <p style="color: #64748b; margin-bottom: 20px;">Crea la primera cuenta para administrar este prototipo.</p>
         <div class="form-group"><label>Correo del administrador</label><input id="preparar-email" type="email" autocomplete="email"></div>
         <div class="form-group"><label>Contraseña (10 caracteres o más)</label><input id="preparar-pass" type="password" autocomplete="new-password"></div>
-        <div class="form-group"><label>Código de preparación (solo versión web)</label><input id="preparar-codigo" type="password"></div>
         <button class="btn-action" style="background: var(--color-didi);" onclick="crearAdminInicial()">Crear administrador</button>
         <div id="preparar-error" class="login-error"></div>
     </div>
@@ -589,7 +588,7 @@
         el.style.display = 'none';
         try {
             const r = await fetch('/api/preparar', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: $('preparar-email').value.trim(), pass: $('preparar-pass').value, codigo: $('preparar-codigo').value }) });
+                body: JSON.stringify({ email: $('preparar-email').value.trim(), pass: $('preparar-pass').value }) });
             const d = await r.json();
             if (!r.ok) throw new Error(d.error || 'No se pudo preparar la administración.');
             $('panel-preparacion').classList.remove('active');
@@ -597,7 +596,6 @@
             $('login-role').value = 'admin';
             $('login-email').value = $('preparar-email').value.trim();
             $('preparar-pass').value = '';
-            $('preparar-codigo').value = '';
             alert('Administrador creado. Inicia sesión con la contraseña que elegiste.');
         } catch (e) { el.textContent = e.message; el.style.display = 'block'; }
     }

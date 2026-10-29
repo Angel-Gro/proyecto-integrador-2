@@ -1,4 +1,5 @@
 node_modules/
+AGENTS.md
 distribucion/*
 !distribucion/Repartidores-local.zip
 .wrangler/
